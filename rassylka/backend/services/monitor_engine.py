@@ -61,12 +61,19 @@ async def _get_jwt_token(client: httpx.AsyncClient, role: str = "buyer"):
     if cached and cached.get("expires_at", 0) > time.time():
         return cached["access"], ""
 
-    username = os.getenv("UMIT_BUYER_USERNAME", "")
-    password = os.getenv("UMIT_BUYER_PASSWORD", "")
+    # Use role-specific credentials
+    if role == "seller":
+        username = os.getenv("UMIT_SELLER_USERNAME", "")
+        password = os.getenv("UMIT_SELLER_PASSWORD", "")
+        env_hint = "UMIT_SELLER_USERNAME/UMIT_SELLER_PASSWORD"
+    else:
+        username = os.getenv("UMIT_BUYER_USERNAME", "")
+        password = os.getenv("UMIT_BUYER_PASSWORD", "")
+        env_hint = "UMIT_BUYER_USERNAME/UMIT_BUYER_PASSWORD"
 
     if not username or not password:
         logger.warning(f"No credentials for role={role}")
-        return None, "Тест пропущен: не заданы учётные данные UMIT в .env (UMIT_BUYER_USERNAME/UMIT_BUYER_PASSWORD)"
+        return None, f"Тест пропущен: не заданы учётные данные UMIT в .env ({env_hint})"
 
     try:
         resp = await client.post(UMIT_TOKEN_URL, json={
@@ -339,19 +346,22 @@ DEFAULT_TESTS = [
      "name": "Документы — Договор купли-продажи",
      "description": "GET PDF → HTTP 200"},
 
-    # ── Seller account tests (T77–T80) — from 122.txt rows 158-161 ──
+    # ── Seller account tests (T77–T81) — from 122.txt rows 144, 158-161 ──
     {"code": "T77", "group": "seller", "order": 77,
      "name": "Добавить товар (продавец)",
-     "description": "POST /api/v2/products/ → создание товара"},
-    {"code": "T78", "group": "seller", "order": 78,
-     "name": "Поиск товара продавца",
-     "description": "GET /api/v2/products/?search= → нахождение добавленного"},
+     "description": "Через вкладку «Склад» добавить новый товар (продавец)"},
+    {"code": "T78", "group": "buyer", "order": 78,
+     "name": "Поиск товара продавца (покупатель)",
+     "description": "Через «Расширенный поиск» найти добавленный продавцом товар (покупатель)"},
     {"code": "T79", "group": "seller", "order": 79,
-     "name": "Товар в «Архив»",
-     "description": "PUT /api/v2/products/{id}/ status=archived"},
+     "name": "Товар в «Архив» (продавец)",
+     "description": "Через вкладку «Склад» переместить товар в папку «Архив» (продавец)"},
     {"code": "T80", "group": "seller", "order": 80,
-     "name": "Проверка товара в «Архив»",
-     "description": "GET архив → товар присутствует"},
+     "name": "Проверка товара в «Архив» (продавец)",
+     "description": "Проверить перемещённый товар в папке «Архив» (продавец)"},
+    {"code": "T81", "group": "buyer", "order": 81,
+     "name": "Сменить аккаунт",
+     "description": "Через вкладку «Аккаунт» перейти на другой аккаунт (кнопка «сменить аккаунт»)"},
 ]
 
 
@@ -621,42 +631,48 @@ async def _test_api_detail(client: httpx.AsyncClient, list_url: str,
         }
 
 
-async def _test_auth_login(client: httpx.AsyncClient) -> dict:
+async def _test_auth_login(client: httpx.AsyncClient, role: str = "buyer") -> dict:
     """Test authentication via JWT."""
     start = time.time()
     try:
-        token = await _get_jwt_token(client, "buyer")
+        token, err = await _get_jwt_token(client, role)
         duration = int((time.time() - start) * 1000)
         if token:
             return {
                 "status": "pass", "duration_ms": duration,
                 "response_code": 200, "error_message": "",
-                "details": {"authenticated": True},
+                "details": {"authenticated": True, "role": role},
             }
         else:
-            creds_set = bool(UMIT_BUYER_USERNAME and UMIT_BUYER_PASSWORD)
+            if role == "seller":
+                env_hint = "UMIT_SELLER_USERNAME/UMIT_SELLER_PASSWORD"
+                creds_set = bool(os.getenv("UMIT_SELLER_USERNAME") and os.getenv("UMIT_SELLER_PASSWORD"))
+            else:
+                env_hint = "UMIT_BUYER_USERNAME/UMIT_BUYER_PASSWORD"
+                creds_set = bool(os.getenv("UMIT_BUYER_USERNAME") and os.getenv("UMIT_BUYER_PASSWORD"))
             return {
                 "status": "fail", "duration_ms": duration,
                 "response_code": 401,
-                "error_message": (f"Не удалось получить JWT-токен от API UMIT. "
-                                  f"{'Логин/пароль заданы в .env' if creds_set else 'ВНИМАНИЕ: логин/пароль НЕ заданы в .env (UMIT_BUYER_USERNAME/UMIT_BUYER_PASSWORD)'}. "
+                "error_message": (f"Не удалось получить JWT-токен от API UMIT (role={role}). "
+                                  f"{'Логин/пароль заданы в .env' if creds_set else f'ВНИМАНИЕ: логин/пароль НЕ заданы в .env ({env_hint})'}. "
                                   f"Возможные причины: неверный пароль, аккаунт заблокирован, или API /api/token/ недоступен."),
-                "details": {"authenticated": False, "credentials_set": creds_set},
+                "details": {"authenticated": False, "credentials_set": creds_set, "role": role},
             }
     except Exception as e:
         duration = int((time.time() - start) * 1000)
         return {
             "status": "error", "duration_ms": duration,
             "response_code": 0,
-            "error_message": f"Ошибка авторизации: {_error_explain(e, UMIT_TOKEN_URL)}",
-            "details": {},
+            "error_message": f"Ошибка авторизации ({role}): {_error_explain(e, UMIT_TOKEN_URL)}",
+            "details": {"role": role},
         }
 
 
 async def _test_authenticated_api(client: httpx.AsyncClient, url: str,
-                                   required_fields: list = None) -> dict:
+                                   required_fields: list = None,
+                                   role: str = "buyer") -> dict:
     """Test an authenticated API endpoint."""
-    headers, auth_err = await _auth_headers(client)
+    headers, auth_err = await _auth_headers(client, role=role)
     if not headers:
         is_no_creds = "не заданы" in auth_err
         return {
@@ -664,14 +680,15 @@ async def _test_authenticated_api(client: httpx.AsyncClient, url: str,
             "duration_ms": 0,
             "response_code": 0,
             "error_message": auth_err,
-            "details": {"url": url},
+            "details": {"url": url, "role": role},
         }
     return await _test_api_json(client, url, required_fields=required_fields, headers=headers)
 
 
-async def _test_authenticated_nonempty(client: httpx.AsyncClient, url: str) -> dict:
+async def _test_authenticated_nonempty(client: httpx.AsyncClient, url: str,
+                                        role: str = "buyer") -> dict:
     """Test an authenticated API endpoint returns non-empty data."""
-    headers, auth_err = await _auth_headers(client)
+    headers, auth_err = await _auth_headers(client, role=role)
     if not headers:
         is_no_creds = "не заданы" in auth_err
         return {
@@ -679,15 +696,16 @@ async def _test_authenticated_nonempty(client: httpx.AsyncClient, url: str) -> d
             "duration_ms": 0,
             "response_code": 0,
             "error_message": auth_err,
-            "details": {"url": url},
+            "details": {"url": url, "role": role},
         }
     return await _test_api_nonempty(client, url, headers=headers)
 
 
 async def _test_authenticated_detail(client: httpx.AsyncClient, list_url: str,
-                                      check_field: str = None) -> dict:
+                                      check_field: str = None,
+                                      role: str = "buyer") -> dict:
     """Test an authenticated detail endpoint by fetching list → first item detail."""
-    headers, auth_err = await _auth_headers(client)
+    headers, auth_err = await _auth_headers(client, role=role)
     if not headers:
         is_no_creds = "не заданы" in auth_err
         return {
@@ -695,7 +713,7 @@ async def _test_authenticated_detail(client: httpx.AsyncClient, list_url: str,
             "duration_ms": 0,
             "response_code": 0,
             "error_message": auth_err,
-            "details": {"url": list_url},
+            "details": {"url": list_url, "role": role},
         }
     return await _test_api_detail(client, list_url, headers=headers, check_field=check_field)
 
@@ -974,15 +992,17 @@ async def execute_test(client: httpx.AsyncClient, test_code: str) -> dict:
         # T76: Документы — Договор купли-продажи (PDF)
         "T76": lambda: _test_pdf_available(client, _PDF_SALES),
 
-        # ── Seller (T77-T80) ──
+        # ── Seller (T77-T81) ──
         # T77: Добавить товар (продавец) — product-seller
-        "T77": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller"),
-        # T78: Поиск товара продавца
-        "T78": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller"),
-        # T79: Товар в «Архив»
-        "T79": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller"),
-        # T80: Проверка товара в «Архив»
-        "T80": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller"),
+        "T77": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller", role="seller"),
+        # T78: Поиск товара продавца (покупатель!) — stock/product с поиском
+        "T78": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product", role="buyer"),
+        # T79: Товар в «Архив» (продавец)
+        "T79": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller", role="seller"),
+        # T80: Проверка товара в «Архив» (продавец)
+        "T80": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/stock/product-seller", role="seller"),
+        # T81: Сменить аккаунт (проверка доступности user-type API)
+        "T81": lambda: _test_authenticated_api(client, f"{UMIT_API_V1}/users/user-type/"),
     }
 
     fn = TEST_MAP.get(test_code)
@@ -1041,10 +1061,13 @@ async def run_all_tests(trigger: str = "manual") -> int:
             await db.commit()
             run_id = run.id
 
-        # Get enabled tests
+        # Get enabled tests (exclude B-prefix tests — they run via browser_test_engine)
         async with async_session() as db:
             result = await db.execute(
-                select(MonitorTest).where(MonitorTest.enabled == True).order_by(MonitorTest.order)
+                select(MonitorTest)
+                .where(MonitorTest.enabled == True)
+                .where(~MonitorTest.code.like("B%"))
+                .order_by(MonitorTest.order)
             )
             tests = result.scalars().all()
             test_data = [(t.id, t.code) for t in tests]

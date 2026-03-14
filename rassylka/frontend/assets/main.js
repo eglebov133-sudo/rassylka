@@ -2022,22 +2022,146 @@ async function renderMonitor(container) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${testsData.tests.map(t => `
-                                <tr data-status="${t.last_status}">
-                                    <td><code style="font-size:11px;color:var(--primary)">${t.code}</code></td>
-                                    <td style="font-size:13px">${t.name}</td>
-                                    <td><span style="font-size:11px;color:var(--text-muted);text-transform:uppercase">${t.group}</span></td>
-                                    <td>${monitorBadge(t.last_status)}</td>
-                                    <td style="font-size:12px;color:var(--text-muted)">${t.last_duration_ms}ms</td>
-                                    <td style="font-size:12px">${t.last_response_code||'—'}</td>
-                                    <td style="font-size:12px;color:var(--danger);max-width:400px;white-space:normal;word-break:break-word;line-height:1.4" title="${(t.last_error||'').replace(/"/g,'&quot;')}">${t.last_error||''}</td>
-                                    <td>
-                                        <button class="btn btn-sm btn-ghost mon-rerun" data-id="${t.id}" title="Запустить">
-                                            <span class="material-symbols-outlined" style="font-size:16px">replay</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                            `).join('')}
+                            ${(() => {
+                                // Section mapping from 123.txt — maps test codes to logical sections
+                                const SECTION_MAP = {
+                                    // === Общедоступная часть ===
+                                    'T01':'Общедоступная часть','T02':'Общедоступная часть','T03':'Общедоступная часть','T04':'Общедоступная часть',
+                                    'B01':'Общедоступная часть','B02':'Общедоступная часть','B03':'Общедоступная часть','B04':'Общедоступная часть','B05':'Общедоступная часть',
+                                    // === Расширенный поиск ===
+                                    'T05':'Расширенный поиск',
+                                    'B06':'Расширенный поиск','B07':'Расширенный поиск','B08':'Расширенный поиск','B09':'Расширенный поиск','B10':'Расширенный поиск','B11':'Расширенный поиск',
+                                    // === Поле поиска ===
+                                    'B12':'Поле поиска','B13':'Поле поиска',
+                                    // === Новые заявки ===
+                                    'T06':'Новые заявки','T07':'Новые заявки',
+                                    'B14':'Новые заявки','B15':'Новые заявки','B16':'Новые заявки','B17':'Новые заявки','B18':'Новые заявки','B19':'Новые заявки',
+                                    // === Детальная карточки заявки ===
+                                    'T08':'Детальная карточки заявки',
+                                    'B20':'Детальная карточки заявки','B21':'Детальная карточки заявки','B22':'Детальная карточки заявки','B23':'Детальная карточки заявки','B24':'Детальная карточки заявки','B25':'Детальная карточки заявки',
+                                    // === Новые товары ===
+                                    'T09':'Новые товары',
+                                    'B26':'Новые товары','B27':'Новые товары','B28':'Новые товары','B29':'Новые товары','B30':'Новые товары',
+                                    // === Детальная карточка товара ===
+                                    'B31':'Детальная карточка товара','B32':'Детальная карточка товара','B33':'Детальная карточка товара','B34':'Детальная карточка товара','B35':'Детальная карточка товара',
+                                    // === Все заявки ===
+                                    'B36':'Все заявки','B37':'Все заявки','B38':'Все заявки','B39':'Все заявки','B40':'Все заявки','B41':'Все заявки','B42':'Все заявки',
+                                    // === Все товары ===
+                                    'B43':'Все товары','B44':'Все товары','B45':'Все товары','B46':'Все товары','B47':'Все товары','B48':'Все товары',
+                                    // === Футер ===
+                                    'T10':'Футер','T11':'Футер','T12':'Футер','T13':'Футер','T14':'Футер','T15':'Футер','T16':'Футер','T17':'Футер',
+                                    'B49':'Футер','B50':'Футер','B51':'Футер','B52':'Футер',
+                                    // === Авторизация ===
+                                    'B53':'Авторизация','B54':'Авторизация','B55':'Авторизация','B56':'Авторизация','B57':'Авторизация','B58':'Авторизация','B59':'Авторизация',
+                                    // === Форма восстановления пароля ===
+                                    'B60':'Восстановление пароля','B61':'Восстановление пароля','B62':'Восстановление пароля',
+                                    // === Форма регистрации ===
+                                    'B63':'Регистрация','B64':'Регистрация','B65':'Регистрация','B66':'Регистрация','B67':'Регистрация','B68':'Регистрация',
+                                    // === Профиль покупателя — Заявки ===
+                                    'T18':'API Заявки','T19':'API Заявки','T20':'API Заявки','T21':'SSL/Время ответа','T22':'SSL/Время ответа','T23':'SSL/Время ответа',
+                                    'T24':'Авторизация покупателя','T25':'Заявки (API)','T26':'Заявки (API)','T27':'Заявки (API)','T28':'Заявки (API)','T29':'Заявки (API)',
+                                    'T30':'Избранное (API)','T31':'Избранное (API)','T32':'История заявок (API)','T33':'Заявки (API)','T34':'Заявки (API)','T35':'Заявки (API)',
+                                    // === Создание заявки ===
+                                    'B69':'Создание заявки','B70':'Создание заявки','B71':'Создание заявки','B72':'Создание заявки','B73':'Создание заявки',
+                                    'B74':'Создание заявки','B75':'Создание заявки','B76':'Создание заявки','B77_UI':'Создание заявки','B78_UI':'Создание заявки',
+                                    'B79_UI':'Создание заявки','B80_UI':'Создание заявки','B81_UI':'Создание заявки','B82':'Создание заявки',
+                                    // === Перемещение в историю ===
+                                    'B83':'Перемещение в историю','B84':'Перемещение в историю','B85':'Перемещение в историю','B86':'Перемещение в историю','B87':'Перемещение в историю',
+                                    // === Форма создания заявки ===
+                                    'B88':'Форма создания заявки','B89':'Форма создания заявки','B90':'Форма создания заявки','B91':'Форма создания заявки',
+                                    'B92':'Форма создания заявки','B93':'Форма создания заявки',
+                                    // === Страница Заявки ===
+                                    'B94':'Страница Заявки','B95':'Страница Заявки','B96':'Страница Заявки','B97':'Страница Заявки','B98':'Страница Заявки',
+                                    // === Ссылки (авторизован) ===
+                                    'T36':'Ссылки (авторизован)','T37':'Ссылки (авторизован)','T38':'Ссылки (авторизован)','T39':'Ссылки (авторизован)',
+                                    'T40':'Ссылки (авторизован)','T41':'Ссылки (авторизован)','T42':'Ссылки (авторизован)',
+                                    // === Склад ===
+                                    'T43':'Склад (API)','T44':'Склад (API)','T45':'Склад (API)','T46':'Склад (API)',
+                                    'B99':'Склад','B100':'Склад','B101':'Склад','B102':'Склад','B103':'Склад','B104':'Склад','B105':'Склад',
+                                    'B106':'Склад — подборки','B107':'Склад — подборки','B108':'Склад — подборки',
+                                    // === Корзина ===
+                                    'T47':'Корзина (API)','T48':'Корзина (API)','T49':'Корзина (API)','T50':'Корзина (API)','T51':'Корзина (API)','T52':'Корзина (API)',
+                                    'B109':'Корзина','B110':'Корзина','B111':'Корзина','B112':'Корзина',
+                                    // === Продавец / Витрина ===
+                                    'T53':'Продавец / Витрина (API)','T54':'Продавец / Витрина (API)','T55':'Продавец / Витрина (API)',
+                                    // === Заказы ===
+                                    'T56':'Заказы (API)','T57':'Заказы (API)','T58':'Заказы (API)','T59':'Заказы (API)',
+                                    'B113':'Заказы','B114':'Заказы','B115':'Заказы','B116':'Заказы',
+                                    // === Аккаунт ===
+                                    'T60':'Аккаунт (API)',
+                                    'B117':'Аккаунт','B118':'Аккаунт','B119':'Аккаунт',
+                                    // === Профиль ===
+                                    'T61':'Профиль (API)','T62':'Профиль (API)',
+                                    'B120':'Профиль',
+                                    // === Техника ===
+                                    'T63':'Техника (API)','T64':'Техника (API)','T65':'Техника (API)','T66':'Техника (API)',
+                                    'T67':'Техника (API)','T68':'Техника (API)','T69':'Техника (API)','T70':'Техника (API)',
+                                    'B121':'Техника','B122':'Техника','B123':'Техника','B124':'Техника',
+                                    // === Рейтинг / Партнёрская / Документы ===
+                                    'T71':'Рейтинг / Документы (API)','T72':'Рейтинг / Документы (API)','T73':'Рейтинг / Документы (API)',
+                                    'T74':'Рейтинг / Документы (API)','T75':'Рейтинг / Документы (API)','T76':'Рейтинг / Документы (API)',
+                                    'B125':'Рейтинг / Документы','B126':'Рейтинг / Документы','B127':'Рейтинг / Документы',
+                                    // === Продавец (UI) ===
+                                    'T77':'Продавец','T78':'Продавец','T79':'Продавец','T80':'Продавец','T81':'Продавец',
+                                    'B128':'Продавец','B129':'Продавец','B130':'Продавец',
+                                    // === Сообщения ===
+                                    'B131':'Сообщения','B132':'Сообщения','B133':'Сообщения','B134':'Сообщения',
+                                    'B135':'Сообщения','B136':'Сообщения','B137':'Сообщения','B138':'Сообщения',
+                                };
+                                const SECTION_ICONS = {
+                                    'Общедоступная часть':'public','Расширенный поиск':'search','Поле поиска':'manage_search',
+                                    'Новые заявки':'assignment','Детальная карточки заявки':'description','Новые товары':'inventory_2',
+                                    'Детальная карточка товара':'info','Все заявки':'list_alt','Все товары':'view_list',
+                                    'Футер':'dock_to_bottom','Авторизация':'lock','Восстановление пароля':'lock_reset',
+                                    'Регистрация':'person_add','Создание заявки':'add_circle','Перемещение в историю':'history',
+                                    'Форма создания заявки':'edit_note','Страница Заявки':'assignment','Склад':'warehouse',
+                                    'Склад — подборки':'collections_bookmark','Корзина':'shopping_cart','Заказы':'receipt_long',
+                                    'Аккаунт':'account_circle','Профиль':'badge','Техника':'directions_car',
+                                    'Рейтинг / Документы':'star','Продавец':'storefront','Сообщения':'chat',
+                                };
+                                // Build sections in order
+                                const sectionOrder = [];
+                                const sections = {};
+                                testsData.tests.forEach(t => {
+                                    const sec = SECTION_MAP[t.code] || t.group;
+                                    if (!sections[sec]) { sections[sec] = []; sectionOrder.push(sec); }
+                                    sections[sec].push(t);
+                                });
+                                let html = '';
+                                sectionOrder.forEach(sec => {
+                                    const tests = sections[sec];
+                                    if (!tests || tests.length === 0) return;
+                                    const passCount = tests.filter(t => t.last_status === 'pass').length;
+                                    const failCount = tests.filter(t => ['fail','error'].includes(t.last_status)).length;
+                                    const skipCount = tests.filter(t => ['skip','unknown'].includes(t.last_status)).length;
+                                    const icon = SECTION_ICONS[sec] || 'folder';
+                                    const secId = sec.replace(/[^a-zA-Zа-яА-Я0-9]/g,'_');
+                                    html += '<tr class="mon-group-header" data-group="'+secId+'" style="cursor:pointer;background:linear-gradient(90deg,var(--primary)08,transparent)">';
+                                    html += '<td colspan="8" style="padding:8px 16px;font-weight:700;font-size:13px;border-bottom:2px solid var(--primary);border-left:3px solid var(--primary)">';
+                                    html += '<span style="display:flex;align-items:center;gap:8px">';
+                                    html += '<span class="material-symbols-outlined" style="font-size:18px;color:var(--primary)">'+icon+'</span>';
+                                    html += sec;
+                                    html += ' <span style="font-weight:400;font-size:11px;color:var(--text-muted)">('+tests.length+')</span>';
+                                    html += '<span style="margin-left:auto;display:flex;gap:8px;font-size:12px">';
+                                    if (passCount > 0) html += '<span style="color:var(--success)">✓ '+passCount+'</span>';
+                                    if (failCount > 0) html += '<span style="color:var(--danger)">✗ '+failCount+'</span>';
+                                    if (skipCount > 0) html += '<span style="color:var(--text-muted)">⊘ '+skipCount+'</span>';
+                                    html += '</span></span></td></tr>';
+                                    tests.forEach(t => {
+                                        html += '<tr data-status="'+t.last_status+'" data-group="'+secId+'">';
+                                        html += '<td><code style="font-size:11px;color:var(--primary)">'+t.code+'</code></td>';
+                                        html += '<td style="font-size:13px">'+t.name+'</td>';
+                                        html += '<td><span style="font-size:10px;padding:2px 6px;border-radius:3px;background:var(--bg-hover);color:var(--text-muted)">'+t.group+'</span></td>';
+                                        html += '<td>'+monitorBadge(t.last_status)+'</td>';
+                                        html += '<td style="font-size:12px;color:var(--text-muted)">'+t.last_duration_ms+'ms</td>';
+                                        html += '<td style="font-size:12px">'+(t.last_response_code||'—')+'</td>';
+                                        html += '<td style="font-size:12px;color:var(--danger);max-width:400px;white-space:normal;word-break:break-word;line-height:1.4" title="'+(t.last_error||'').replace(/"/g,'&quot;')+'">'+(t.last_error||'')+'</td>';
+                                        html += '<td><button class="btn btn-sm btn-ghost mon-rerun" data-id="'+t.id+'" title="Запустить"><span class="material-symbols-outlined" style="font-size:16px">replay</span></button></td>';
+                                        html += '</tr>';
+                                    });
+                                });
+                                return html;
+                            })()}
                         </tbody>
                     </table>
                 </div>
@@ -2126,12 +2250,26 @@ async function renderMonitor(container) {
         });
         document.getElementById('mon-filter-pass')?.addEventListener('click', () => {
             document.querySelectorAll('#mon-tests-table tbody tr').forEach(r => {
+                if (r.classList.contains('mon-group-header')) { r.style.display = ''; return; }
                 r.style.display = r.dataset.status === 'pass' ? '' : 'none';
             });
         });
         document.getElementById('mon-filter-fail')?.addEventListener('click', () => {
             document.querySelectorAll('#mon-tests-table tbody tr').forEach(r => {
+                if (r.classList.contains('mon-group-header')) { r.style.display = ''; return; }
                 r.style.display = ['fail','error'].includes(r.dataset.status) ? '' : 'none';
+            });
+        });
+
+        // Event: Collapse/expand groups
+        document.querySelectorAll('.mon-group-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const group = header.dataset.group;
+                const rows = document.querySelectorAll('#mon-tests-table tbody tr[data-group="'+group+'"]:not(.mon-group-header)');
+                const firstRow = rows[0];
+                const isHidden = firstRow && firstRow.style.display === 'none';
+                rows.forEach(r => r.style.display = isHidden ? '' : 'none');
+                header.style.opacity = isHidden ? '1' : '0.7';
             });
         });
 

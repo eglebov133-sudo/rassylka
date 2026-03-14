@@ -210,7 +210,8 @@ class MonitorTest(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group = Column(String(50), nullable=False, default="public")  # public, buyer, seller
-    code = Column(String(10), unique=True, nullable=False)        # T01, T02, ...
+    subgroup = Column(String(200), nullable=True, default="")     # logical section from 123.txt
+    code = Column(String(10), unique=True, nullable=False)        # T01, T02, ..., B01, B02, ...
     name = Column(String(500), nullable=False)
     description = Column(Text, default="")
     enabled = Column(Boolean, default=True)

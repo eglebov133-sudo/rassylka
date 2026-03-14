@@ -88,26 +88,28 @@ async def get_monitor_status(db: AsyncSession = Depends(get_db)):
 
 @router.get("/tests")
 async def get_tests(db: AsyncSession = Depends(get_db)):
-    """List all tests with their latest result status."""
+    """List all tests with their latest result status (from ANY run)."""
     tests = (await db.execute(
         select(MonitorTest).order_by(MonitorTest.order)
     )).scalars().all()
 
-    # Get latest results for each test
-    last_run = (await db.execute(
-        select(MonitorRun)
-        .where(MonitorRun.status == "completed")
-        .order_by(desc(MonitorRun.started_at))
-        .limit(1)
-    )).scalar_one_or_none()
-
+    # Get latest result for EACH test (across all completed runs)
+    # Subquery: for each test_id, find the max MonitorResult.id (latest result)
+    from sqlalchemy import and_
     latest_results = {}
-    if last_run:
-        results = (await db.execute(
-            select(MonitorResult).where(MonitorResult.run_id == last_run.id)
-        )).scalars().all()
-        for r in results:
-            latest_results[r.test_id] = r
+    for t in tests:
+        latest_result = (await db.execute(
+            select(MonitorResult)
+            .join(MonitorRun, MonitorResult.run_id == MonitorRun.id)
+            .where(and_(
+                MonitorResult.test_id == t.id,
+                MonitorRun.status == "completed",
+            ))
+            .order_by(desc(MonitorResult.checked_at))
+            .limit(1)
+        )).scalar_one_or_none()
+        if latest_result:
+            latest_results[t.id] = latest_result
 
     items = []
     for t in tests:
@@ -245,3 +247,25 @@ async def trigger_seed():
     """Re-seed test definitions."""
     await seed_tests()
     return {"message": "Tests seeded"}
+
+
+# ── Browser Tests (Playwright) ──
+
+@router.post("/browser-seed")
+async def trigger_browser_seed():
+    """Seed browser test definitions into DB."""
+    from backend.services.browser_test_engine import seed_browser_tests
+    await seed_browser_tests()
+    return {"message": "Browser tests seeded"}
+
+
+@router.post("/browser-run")
+async def trigger_browser_run():
+    """Run all browser-based UI tests (Playwright)."""
+    from backend.services.browser_test_engine import run_browser_tests, browser_test_state
+    if browser_test_state["running"]:
+        raise HTTPException(status_code=409, detail="Browser tests already running")
+
+    import asyncio
+    asyncio.create_task(run_browser_tests(trigger="manual"))
+    return {"message": "Browser tests started", "status": "running"}
