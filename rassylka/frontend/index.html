@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BidRoute AI — Система рассылки заявок</title>
+    <meta name="description" content="Автоматическая система парсинга и рассылки заявок поставщикам">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="assets/index.css">
+</head>
+
+<body>
+    <div id="app" class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon">
+                    <span class="material-symbols-outlined">route</span>
+                </div>
+                <div>
+                    <h1 class="brand-name">BidRoute AI</h1>
+                    <p class="brand-sub">Система рассылки</p>
+                </div>
+            </div>
+            <nav class="sidebar-nav" id="sidebar-nav">
+                <a href="#/" class="nav-item active" data-page="dashboard">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    <span>Дашборд</span>
+                </a>
+                <a href="#/bids" class="nav-item" data-page="bids">
+                    <span class="material-symbols-outlined">gavel</span>
+                    <span>Заявки</span>
+                </a>
+                <a href="#/suppliers" class="nav-item" data-page="suppliers">
+                    <span class="material-symbols-outlined">groups</span>
+                    <span>Поставщики</span>
+                </a>
+                <a href="#/rules" class="nav-item" data-page="rules">
+                    <span class="material-symbols-outlined">account_tree</span>
+                    <span>Правила</span>
+                </a>
+                <a href="#/logs" class="nav-item" data-page="logs">
+                    <span class="material-symbols-outlined">history</span>
+                    <span>Логи</span>
+                </a>
+                <a href="#/smtp" class="nav-item" data-page="smtp">
+                    <span class="material-symbols-outlined">alternate_email</span>
+                    <span>SMTP</span>
+                </a>
+                <a href="#/campaigns" class="nav-item" data-page="campaigns">
+                    <span class="material-symbols-outlined">campaign</span>
+                    <span>Рассылки</span>
+                </a>
+                <a href="#/monitor" class="nav-item" data-page="monitor">
+                    <span class="material-symbols-outlined">monitor_heart</span>
+                    <span>Мониторинг</span>
+                </a>
+            </nav>
+            <div class="sidebar-status" id="sidebar-status">
+                <div class="status-header">
+                    <span class="status-label">СТАТУС СИСТЕМЫ</span>
+                    <span class="status-dot online" id="system-dot"></span>
+                </div>
+                <div class="status-row">
+                    <span>Парсер</span>
+                    <span class="status-value" id="parser-status">—</span>
+                </div>
+                <div class="status-row">
+                    <span>SMTP</span>
+                    <span class="status-value" id="smtp-status">—</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h2 class="page-title" id="page-title">Дашборд</h2>
+                <div class="top-bar-actions">
+                    <div class="search-box">
+                        <span class="material-symbols-outlined">search</span>
+                        <input type="text" id="global-search" placeholder="Поиск заявок или поставщиков...">
+                    </div>
+                </div>
+            </header>
+            <div class="content-area" id="content-area">
+                <!-- Pages render here -->
+            </div>
+        </main>
+    </div>
+
+    <script src="assets/main.js"></script>
+</body>
+
+</html>
