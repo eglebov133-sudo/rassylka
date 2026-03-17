@@ -19,6 +19,7 @@ from backend.services.bid_parser import parser_loop
 from backend.services.mail_engine import distributor_loop
 from backend.services.weekly_report import report_scheduler
 from backend.services.monitor_engine import monitor_loop
+from backend.services.auto_supplier_search import auto_search_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +43,8 @@ async def lifespan(app: FastAPI):
     distributor_task = asyncio.create_task(distributor_loop())
     report_task = asyncio.create_task(report_scheduler())
     monitor_task = asyncio.create_task(monitor_loop())
-    logger.info("Background tasks started")
+    auto_search_task = asyncio.create_task(auto_search_loop())
+    logger.info("Background tasks started (5 tasks: parser, distributor, report, monitor, auto_search)")
 
     yield
 
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI):
     distributor_task.cancel()
     report_task.cancel()
     monitor_task.cancel()
+    auto_search_task.cancel()
     logger.info("Background tasks stopped")
 
 
@@ -74,6 +77,8 @@ from backend.routers import smtp_accounts
 app.include_router(smtp_accounts.router)
 from backend.routers import campaigns
 app.include_router(campaigns.router)
+from backend.routers import campaign_templates
+app.include_router(campaign_templates.router)
 from backend.routers import monitor
 app.include_router(monitor.router)
 
@@ -81,6 +86,11 @@ app.include_router(monitor.router)
 ATRIBUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "atribut")
 if os.path.isdir(ATRIBUT_DIR):
     app.mount("/email-assets", StaticFiles(directory=ATRIBUT_DIR), name="email-assets")
+
+# Serve campaign template assets (images, fonts for Prom28 etc.)
+CAMPAIGN_TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "campaign_templates")
+os.makedirs(CAMPAIGN_TEMPLATES_DIR, exist_ok=True)
+app.mount("/campaign-assets", StaticFiles(directory=CAMPAIGN_TEMPLATES_DIR), name="campaign-assets")
 
 # Serve frontend static files
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")

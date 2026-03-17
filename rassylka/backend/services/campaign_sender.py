@@ -34,6 +34,209 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 _active_tasks: dict[int, asyncio.Task] = {}
 
 
+def inject_tracking(html: str, track_token: str) -> str:
+    """Inject tracking pixel into raw HTML template (before </body>)."""
+    tracking_url = f"{APP_BASE_URL}/api/track/campaign/open/{track_token}"
+    pixel = f'<img src="{tracking_url}" width="1" height="1" style="display:none" alt="">'
+    if "</body>" in html.lower():
+        idx = html.lower().rfind("</body>")
+        return html[:idx] + pixel + html[idx:]
+    return html + pixel
+
+
+def build_campaign_html(subject: str, content_body: str, tracking_url: str = "", unsubscribe_url: str = "", cta_url: str = "", cta_text: str = "") -> str:
+    """Wrap campaign content in the professional Umit-branded email template.
+    Matches the visual style of the automatic distribution template (mail_engine.build_email_html).
+    """
+    img_base = f"{APP_BASE_URL}/email-assets"
+
+    # Build CTA button if provided
+    cta_block = ""
+    if cta_url and cta_text:
+        cta_block = f'''
+                            <tr>
+                                <td style="padding-top:20px; text-align:center">
+                                    <a style="display:inline-block; color:#ffffff; text-align:center; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:15px; font-weight:600; line-height:24px; padding:12px 32px; background-color:#27ae60; border-radius:8px; text-decoration:none" href="{cta_url}" target="_blank">
+                                        {cta_text} →
+                                    </a>
+                                </td>
+                            </tr>'''
+
+    # Tracking pixel
+    pixel = ""
+    if tracking_url:
+        pixel = f'<img src="{tracking_url}" width="1" height="1" alt="" style="display:none;width:1px;height:1px;border:0" />'
+
+    # Unsubscribe block in footer
+    unsub_left = ""
+    unsub_extra = ""
+    if unsubscribe_url:
+        unsub_left = f'<a href="{unsubscribe_url}" target="_blank" style="color:#828282; font-family:\'Gilroy\',sans-serif,Arial,Helvetica; font-size:12px; font-weight:500; line-height:18px; text-decoration:underline" rel="noopener noreferrer">Отписаться от рассылки</a>'
+        unsub_extra = f'<p style="margin:8px 0 0; font-size:10px; color:#aaa;"><a href="{unsubscribe_url}" style="color:#aaa; text-decoration:underline;">Отписаться от рассылки</a></p>'
+    else:
+        unsub_left = '&nbsp;'
+
+    return f'''<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{subject}</title>
+    <!--[if (gte mso 9)|(IE)]>
+    <style type="text/css">
+        table {{ border-collapse: collapse !important; }}
+        body, table, td, p, a {{ font-family: sans-serif, Arial, Helvetica !important; }}
+    </style>
+    <![endif]-->
+</head>
+<body style="margin:0; padding:0; min-width:100%; background:#f8f8f8">
+    <center style="width:100%; table-layout:fixed; background:#f8f8f8; padding-top:30px; padding-bottom:30px">
+        <div style="max-width:600px; background:#ffffff; border-radius:5px">
+            <!--[if (gte mso 9)|(IE)]>
+            <table width="600" align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="color:#333333"><tr><td>
+            <![endif]-->
+            <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; background:#ffffff; margin:0; padding:30px; width:100%; max-width:600px">
+
+                <!-- LOGO -->
+                <tr>
+                    <td>
+                        <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="margin:0; padding:0; width:100%; max-width:540px">
+                            <tr>
+                                <td align="left">
+                                    <a href="https://umit.pro/" target="_blank" rel="noopener noreferrer">
+                                        <img width="82" height="50" src="{img_base}/logo.png" alt="Umit" style="display:block">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- HEADER BANNER -->
+                <tr>
+                    <td>
+                        <table align="center" cellspacing="0" cellpadding="0" role="presentation" style="border:1px solid #f2f2f2; border-radius:8px; margin:0; margin-top:25px; padding:8px 10px; width:100%; max-width:540px; background-image:url({img_base}/background-1.png)">
+                            <tr>
+                                <td>
+                                    <img width="65" height="67" src="{img_base}/cart.png" alt="" style="display:inline-block; vertical-align:middle">
+                                </td>
+                                <td>
+                                    <p style="margin-left:20px; font-size:22px; font-weight:700; line-height:138%; color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; display:inline-block">
+                                        Umit — <span style="color:#57c76f">маркетплейс</span> запчастей
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- CONTENT -->
+                <tr>
+                    <td>
+                        <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="margin:0; margin-top:25px; padding:0; width:100%; max-width:540px">
+                            <tr>
+                                <td style="font-size:14px; font-weight:500; color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; line-height:160%">
+                                    {content_body}
+                                </td>
+                            </tr>
+                            {cta_block}
+                            <tr>
+                                <td style="padding-top:15px">
+                                    <p style="margin:0; font-size:14px; font-weight:600; color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica">
+                                        Команда Umit
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- MOBILE APP SECTION -->
+                <tr>
+                    <td>
+                        <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; margin:0; padding:0; width:100%; max-width:540px; border:1px solid #f2f2f2; border-radius:8px; background-image:url({img_base}/background-2.png)">
+                            <tr>
+                                <td>
+                                    <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="margin:0; padding:0; padding-left:30px; margin-top:30px; width:100%; max-width:540px">
+                                        <tr>
+                                            <td>
+                                                <p style="margin:0; color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:22px; font-weight:700; line-height:138%">
+                                                    Мобильное приложение <span style="color:#57c76f">Umit</span>
+                                                </p>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <p style="margin:0; margin-top:10px; color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:18px; font-weight:500; line-height:138%">
+                                                    Все заявки и заказы всегда под рукой
+                                                </p>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <table>
+                                                    <tr>
+                                                        <td>
+                                                            <a href="https://apps.apple.com/ru/app/umit/id6450985794" target="_blank" style="display:inline-block; text-decoration:none; margin-top:15px" rel="noopener noreferrer">
+                                                                <img width="116" height="32" src="{img_base}/apple.png" alt="App Store" style="display:block">
+                                                            </a>
+                                                        </td>
+                                                        <td>
+                                                            <a href="https://play.google.com/store/apps/details?id=com.umitauto.app" target="_blank" style="display:inline-block; margin-left:16px; text-decoration:none; margin-top:15px" rel="noopener noreferrer">
+                                                                <img width="116" height="32" src="{img_base}/google.png" alt="Google Play" style="display:block">
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding-top:20px; padding-bottom:20px">
+                                                <a href="https://umit.pro/" target="_blank" style="display:inline-block; text-decoration:none" rel="noopener noreferrer">
+                                                    <img width="80" height="auto" src="{img_base}/logo.png" alt="Umit" style="display:block">
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <td align="right" style="vertical-align:bottom">
+                                    <img width="180" height="200" src="{img_base}/phone.png" alt="Umit application" style="display:block">
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- FOOTER -->
+                <tr>
+                    <td>
+                        <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; background:#f9f9f9; margin:0; padding:15px; width:100%; max-width:540px; margin-top:30px; border-radius:8px">
+                            <tr>
+                                <td align="left">
+                                    {unsub_left}
+                                </td>
+                                <td align="right">
+                                    <p style="margin:0; color:#828282; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:12px; font-weight:500; line-height:18px">
+                                        © Umit. Все права защищены
+                                    </p>
+                                    {unsub_extra}
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+            </table>
+            <!--[if (gte mso 9)|(IE)]>
+            </td></tr></table>
+            <![endif]-->
+        </div>
+    </center>
+{pixel}
+</body>
+</html>'''
+
+
 def inject_tracking(html_body: str, track_token: str) -> str:
     """Inject tracking pixel and wrap links."""
     open_url = f"{APP_BASE_URL}/api/track/campaign/open/{track_token}"
@@ -204,8 +407,19 @@ async def run_campaign(campaign_id: int):
                 logger.warning(f"  Skipped {recipient.email}: {reason}")
                 continue
 
-            # Inject tracking pixel
-            html = inject_tracking(campaign.html_body, recipient.track_token)
+            # Build email — detect raw HTML template vs content for Umit wrapper
+            open_tracking_url = f"{APP_BASE_URL}/api/track/campaign/open/{recipient.track_token}"
+            body = campaign.html_body or ""
+            is_raw_html = body.strip().lower().startswith(("<!doctype", "<html"))
+            if is_raw_html:
+                # Raw HTML template (e.g. Prom28) — inject tracking pixel only
+                html = inject_tracking(body, recipient.track_token)
+            else:
+                html = build_campaign_html(
+                    subject=campaign.subject,
+                    content_body=body,
+                    tracking_url=open_tracking_url,
+                )
 
             # Send
             success, error = await send_campaign_email(

@@ -389,10 +389,32 @@ async def cancel_campaign(campaign_id: int, db: AsyncSession = Depends(get_db)):
     return {"message": "Рассылка отменена"}
 
 
+@router.post("/{campaign_id}/preview")
+async def preview_campaign(campaign_id: int, db: AsyncSession = Depends(get_db)):
+    """Return rendered HTML preview of campaign."""
+    from backend.services.campaign_sender import build_campaign_html
+    from fastapi.responses import HTMLResponse
+
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Кампания не найдена")
+
+    body = campaign.html_body or "<p>Текст письма не задан</p>"
+    is_raw = body.strip().lower().startswith(("<!doctype", "<html"))
+    if is_raw:
+        html = body
+    else:
+        html = build_campaign_html(
+            subject=campaign.subject or "Предпросмотр",
+            content_body=body,
+        )
+    return HTMLResponse(content=html)
+
+
 @router.post("/{campaign_id}/test")
 async def test_campaign(campaign_id: int, data: dict, db: AsyncSession = Depends(get_db)):
     """Send a test email to specified address."""
-    from backend.services.campaign_sender import send_campaign_email, inject_tracking
+    from backend.services.campaign_sender import send_campaign_email, build_campaign_html
 
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
@@ -402,7 +424,15 @@ async def test_campaign(campaign_id: int, data: dict, db: AsyncSession = Depends
     if not test_email:
         raise HTTPException(status_code=400, detail="Укажите email для тестовой отправки")
 
-    html = inject_tracking(campaign.html_body, f"test_{uuid.uuid4().hex[:8]}")
+    body = campaign.html_body or ""
+    is_raw = body.strip().lower().startswith(("<!doctype", "<html"))
+    if is_raw:
+        html = body
+    else:
+        html = build_campaign_html(
+            subject=campaign.subject,
+            content_body=body,
+        )
 
     # Load attachments
     att_result = await db.execute(

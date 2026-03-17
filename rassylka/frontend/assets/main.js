@@ -88,6 +88,7 @@ const routes = {
     '/logs': renderLogs,
     '/smtp': renderSmtp,
     '/campaigns': renderCampaigns,
+    '/reports': renderReports,
     '/monitor': renderMonitor,
 };
 
@@ -99,6 +100,7 @@ const pageTitles = {
     '/logs': 'Логи рассылки',
     '/smtp': 'SMTP-аккаунты',
     '/campaigns': 'Рассылки',
+    '/reports': 'Отчёты по переходам',
     '/monitor': 'Мониторинг umit.pro',
 };
 
@@ -784,29 +786,74 @@ async function renderRules(container) {
                 </div>
             </div>
 
-            <!-- Batching Logic -->
+            <!-- Batching Logic: NEW 2-step scheme -->
             <div class="card mb-24">
                 <div class="section-header">
                     <span class="material-symbols-outlined">reorder</span>
                     <h3>Логика пакетирования</h3>
                 </div>
                 <div class="card-body">
+                    <p class="form-hint" style="margin-bottom:16px;padding:8px 12px;background:rgba(107,99,255,0.1);border-radius:6px;border-left:3px solid var(--primary)">
+                        <strong>Схема:</strong> Батч 1 → пауза (эскалация) → Батч 2. Все параметры настраиваемые.
+                    </p>
+                    <h4 style="font-size:13px;color:var(--primary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Батч 1 (первичная рассылка)</h4>
                     <div class="grid-2">
                         <div class="form-group">
-                            <label class="form-label">Размер пакета</label>
-                            <p class="form-hint">Максимальное число поставщиков в одном батче.</p>
+                            <label class="form-label">Кол-во писем</label>
                             <div class="form-input-suffix">
-                                <input class="form-input" type="number" id="r-batch-size" value="${rules.batch_size}" min="1" max="50">
-                                <span class="suffix">поставщиков</span>
+                                <input class="form-input" type="number" id="r-batch1-size" value="${rules.batch1_size || 5}" min="1" max="50">
+                                <span class="suffix">писем</span>
                             </div>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Таймаут ожидания</label>
-                            <p class="form-hint">Время ожидания перед эскалацией.</p>
+                            <label class="form-label">Пауза между письмами</label>
                             <div class="form-input-suffix">
-                                <input class="form-input" type="number" id="r-batch-timeout" value="${rules.batch_timeout_minutes}" min="1" max="1440">
-                                <span class="suffix">минут</span>
+                                <input class="form-input" type="number" id="r-batch1-delay" value="${rules.batch1_delay_seconds || 120}" min="5" max="600">
+                                <span class="suffix">секунд</span>
                             </div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                        <h4 style="font-size:13px;color:var(--warning);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">⏳ Пауза между батчами</h4>
+                        <div class="form-input-suffix" style="max-width:300px">
+                            <input class="form-input" type="number" id="r-escalation-hours" value="${rules.escalation_hours || 24}" min="1" max="168">
+                            <span class="suffix">часов</span>
+                        </div>
+                        <p class="form-hint">Если нет откликов после батча 1 — ждём указанное время.</p>
+                    </div>
+                    <h4 style="font-size:13px;color:var(--success);margin-top:16px;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Батч 2 (эскалация)</h4>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label class="form-label">Кол-во писем</label>
+                            <div class="form-input-suffix">
+                                <input class="form-input" type="number" id="r-batch2-size" value="${rules.batch2_size || 10}" min="1" max="100">
+                                <span class="suffix">писем</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Пауза между письмами</label>
+                            <div class="form-input-suffix">
+                                <input class="form-input" type="number" id="r-batch2-delay" value="${rules.batch2_delay_seconds || 120}" min="5" max="600">
+                                <span class="suffix">секунд</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Supplier Archiving -->
+            <div class="card mb-24">
+                <div class="section-header">
+                    <span class="material-symbols-outlined">archive</span>
+                    <h3>Архивация неактивных поставщиков</h3>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label class="form-label">Макс. писем без ответа</label>
+                        <p class="form-hint">После N писем без кликов с разных SMTP — поставщик автоматически архивируется.</p>
+                        <div class="form-input-suffix" style="max-width:300px">
+                            <input class="form-input" type="number" id="r-max-no-response" value="${rules.max_no_response || 10}" min="3" max="100">
+                            <span class="suffix">писем</span>
                         </div>
                     </div>
                 </div>
@@ -873,6 +920,13 @@ async function renderRules(container) {
                             <p style="font-size:12px;color:var(--text-muted)">Автоматически рассылать заявки подходящим поставщикам</p>
                         </div>
                     </label>
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                        <input type="checkbox" id="r-auto-supplier-search" ${rules.auto_supplier_search !== false ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--primary)">
+                        <div>
+                            <span style="font-size:14px;font-weight:600">Автопоиск поставщиков</span>
+                            <p style="font-size:12px;color:var(--text-muted)">AI автоматически ищет новых поставщиков по категориям заявок (раз в сутки)</p>
+                        </div>
+                    </label>
                 </div>
             </div>
 
@@ -925,14 +979,19 @@ async function renderRules(container) {
 
         try {
             await api.put('/api/rules', {
-                batch_size: parseInt(document.getElementById('r-batch-size').value),
-                batch_timeout_minutes: parseInt(document.getElementById('r-batch-timeout').value),
                 matching_sensitivity: parseInt(document.getElementById('r-sensitivity').value) / 100,
                 filter_keywords: keywords,
                 auto_parse: document.getElementById('r-auto-parse').checked,
                 auto_distribute: document.getElementById('r-auto-distribute').checked,
+                auto_supplier_search: document.getElementById('r-auto-supplier-search').checked,
                 parse_interval_minutes: parseInt(document.getElementById('r-parse-interval').value),
                 email_delay_seconds: parseInt(document.getElementById('r-email-delay').value),
+                batch1_size: parseInt(document.getElementById('r-batch1-size').value),
+                batch1_delay_seconds: parseInt(document.getElementById('r-batch1-delay').value),
+                batch2_size: parseInt(document.getElementById('r-batch2-size').value),
+                batch2_delay_seconds: parseInt(document.getElementById('r-batch2-delay').value),
+                escalation_hours: parseInt(document.getElementById('r-escalation-hours').value),
+                max_no_response: parseInt(document.getElementById('r-max-no-response').value),
             });
             showToast('Настройки сохранены', 'success');
         } catch (e) {
@@ -1008,6 +1067,7 @@ async function renderLogs(container) {
                         <option value="sent" ${filterStatus === 'sent' ? 'selected' : ''}>Отправлено</option>
                         <option value="failed" ${filterStatus === 'failed' ? 'selected' : ''}>Ошибка</option>
                         <option value="opened" ${filterStatus === 'opened' ? 'selected' : ''}>Открыто</option>
+                        <option value="clicked" ${filterStatus === 'clicked' ? 'selected' : ''}>Перешёл</option>
                         <option value="responded" ${filterStatus === 'responded' ? 'selected' : ''}>Ответили</option>
                     </select>
                     <select class="filter-select" id="gl-batch-filter" style="height:36px">
@@ -1026,14 +1086,13 @@ async function renderLogs(container) {
                             <th class="gl-sort" data-col="supplier_name" style="cursor:pointer">Поставщик ${sortIcon('supplier_name')}</th>
                             <th class="gl-sort" data-col="supplier_email" style="cursor:pointer">Email ${sortIcon('supplier_email')}</th>
                             <th class="gl-sort" data-col="batch_number" style="cursor:pointer">Батч ${sortIcon('batch_number')}</th>
-                            <th class="gl-sort" data-col="email_status" style="cursor:pointer">Статус ${sortIcon('email_status')}</th>
+                            <th style="min-width:200px">Статус доставки</th>
                             <th class="gl-sort" data-col="sent_at" style="cursor:pointer">Отправлено ${sortIcon('sent_at')}</th>
-                            <th class="gl-sort" data-col="clicked_at" style="cursor:pointer">Клик ${sortIcon('clicked_at')}</th>
                             <th class="gl-sort" data-col="error_message" style="cursor:pointer">Ошибка ${sortIcon('error_message')}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${filtered.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">Нет записей в логе</td></tr>' : ''}
+                        ${filtered.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Нет записей в логе</td></tr>' : ''}
                         ${filtered.map(log => `
                             <tr>
                                 <td style="font-weight:500">
@@ -1043,9 +1102,18 @@ async function renderLogs(container) {
                                 <td style="font-weight:500">${log.supplier_name}</td>
                                 <td style="color:var(--primary);font-size:12px">${log.supplier_email}</td>
                                 <td style="text-align:center;font-weight:600">#${log.batch_number}</td>
-                                <td>${badge(log.email_status)}</td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:4px">
+                                        <span title="${log.email_status === 'sent' || log.opened_at || log.clicked_at ? '✅ Доставлено: ' + (log.sent_at ? new Date(log.sent_at).toLocaleString('ru') : '') : '❌ Не доставлено: ' + (log.error_message || '')}" style="display:inline-flex;align-items:center;gap:2px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;${log.email_status === 'sent' || log.opened_at || log.clicked_at ? 'background:#10b98114;color:#10b981' : 'background:#ef444414;color:#ef4444'}"><span class="material-symbols-outlined" style="font-size:14px">${log.email_status === 'failed' ? 'error' : 'mark_email_read'}</span>Доставл.</span>
+                                        <span style="color:var(--text-muted)">→</span>
+                                        <span title="${log.opened_at ? '✅ Открыто: ' + new Date(log.opened_at).toLocaleString('ru') : '⏳ Не открыто'}" style="display:inline-flex;align-items:center;gap:2px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;${log.opened_at ? 'background:#8b5cf614;color:#8b5cf6' : 'background:var(--bg-secondary);color:var(--text-muted)'}">
+                                            <span class="material-symbols-outlined" style="font-size:14px">${log.opened_at ? 'visibility' : 'visibility_off'}</span>Открыл</span>
+                                        <span style="color:var(--text-muted)">→</span>
+                                        <span title="${log.clicked_at ? '✅ Перешёл: ' + new Date(log.clicked_at).toLocaleString('ru') : '⏳ Не перешёл'}" style="display:inline-flex;align-items:center;gap:2px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;${log.clicked_at ? 'background:#f59e0b14;color:#f59e0b' : 'background:var(--bg-secondary);color:var(--text-muted)'}">
+                                            <span class="material-symbols-outlined" style="font-size:14px">${log.clicked_at ? 'ads_click' : 'do_not_touch'}</span>Перешёл</span>
+                                    </div>
+                                </td>
                                 <td style="color:var(--text-muted);font-size:12px;white-space:nowrap">${formatDate(log.sent_at)}</td>
-                                <td style="font-size:12px;white-space:nowrap">${log.clicked_at ? '<span style="color:var(--success)">✓ ' + formatDate(log.clicked_at) + '</span>' : '<span style="color:var(--text-muted)">—</span>'}</td>
                                 <td style="color:var(--danger);font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${log.error_message}">${log.error_message || '—'}</td>
                             </tr>
                         `).join('')}
@@ -1177,6 +1245,7 @@ async function renderBidLogs(container, bidId) {
                         <option value="sent" ${filterStatus === 'sent' ? 'selected' : ''}>Отправлено</option>
                         <option value="failed" ${filterStatus === 'failed' ? 'selected' : ''}>Ошибка</option>
                         <option value="opened" ${filterStatus === 'opened' ? 'selected' : ''}>Открыто</option>
+                        <option value="clicked" ${filterStatus === 'clicked' ? 'selected' : ''}>Перешёл</option>
                         <option value="responded" ${filterStatus === 'responded' ? 'selected' : ''}>Ответили</option>
                     </select>
                     <select class="filter-select" id="bl-batch-filter" style="height:36px">
@@ -1194,22 +1263,30 @@ async function renderBidLogs(container, bidId) {
                             <th class="sortable" data-col="batch_number" style="cursor:pointer">Батч ${sortIcon('batch_number')}</th>
                             <th class="sortable" data-col="supplier_name" style="cursor:pointer">Поставщик ${sortIcon('supplier_name')}</th>
                             <th class="sortable" data-col="supplier_email" style="cursor:pointer">Email ${sortIcon('supplier_email')}</th>
-                            <th class="sortable" data-col="email_status" style="cursor:pointer">Статус ${sortIcon('email_status')}</th>
+                            <th style="min-width:200px">Статус доставки</th>
                             <th class="sortable" data-col="sent_at" style="cursor:pointer">Отправлено ${sortIcon('sent_at')}</th>
-                            <th class="sortable" data-col="clicked_at" style="cursor:pointer">Клик ${sortIcon('clicked_at')}</th>
                             <th class="sortable" data-col="error_message" style="cursor:pointer">Ошибка ${sortIcon('error_message')}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${filtered.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Нет записей</td></tr>' : ''}
+                        ${filtered.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">Нет записей</td></tr>' : ''}
                         ${filtered.map(l => `
                             <tr>
                                 <td style="text-align:center;font-weight:600">#${l.batch_number}</td>
                                 <td style="font-weight:500">${l.supplier_name}</td>
                                 <td style="color:var(--primary);font-size:12px">${l.supplier_email}</td>
-                                <td>${badge(l.email_status)}</td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:4px">
+                                        <span title="${l.email_status === 'sent' || l.opened_at || l.clicked_at ? '✅ Доставлено: ' + (l.sent_at ? new Date(l.sent_at).toLocaleString('ru') : '') : '❌ Не доставлено: ' + (l.error_message || '')}" style="display:inline-flex;align-items:center;gap:2px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;${l.email_status === 'sent' || l.opened_at || l.clicked_at ? 'background:#10b98114;color:#10b981' : 'background:#ef444414;color:#ef4444'}"><span class="material-symbols-outlined" style="font-size:14px">${l.email_status === 'failed' ? 'error' : 'mark_email_read'}</span>Доставл.</span>
+                                        <span style="color:var(--text-muted)">→</span>
+                                        <span title="${l.opened_at ? '✅ Открыто: ' + new Date(l.opened_at).toLocaleString('ru') : '⏳ Не открыто'}" style="display:inline-flex;align-items:center;gap:2px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;${l.opened_at ? 'background:#8b5cf614;color:#8b5cf6' : 'background:var(--bg-secondary);color:var(--text-muted)'}">
+                                            <span class="material-symbols-outlined" style="font-size:14px">${l.opened_at ? 'visibility' : 'visibility_off'}</span>Открыл</span>
+                                        <span style="color:var(--text-muted)">→</span>
+                                        <span title="${l.clicked_at ? '✅ Перешёл: ' + new Date(l.clicked_at).toLocaleString('ru') : '⏳ Не перешёл'}" style="display:inline-flex;align-items:center;gap:2px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;${l.clicked_at ? 'background:#f59e0b14;color:#f59e0b' : 'background:var(--bg-secondary);color:var(--text-muted)'}">
+                                            <span class="material-symbols-outlined" style="font-size:14px">${l.clicked_at ? 'ads_click' : 'do_not_touch'}</span>Перешёл</span>
+                                    </div>
+                                </td>
                                 <td style="color:var(--text-muted);font-size:12px;white-space:nowrap">${formatDate(l.sent_at)}</td>
-                                <td style="font-size:12px;white-space:nowrap">${l.clicked_at ? '<span style="color:var(--success)">✓ ' + formatDate(l.clicked_at) + '</span>' : '<span style="color:var(--text-muted)">—</span>'}</td>
                                 <td style="color:var(--danger);font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${l.error_message}">${l.error_message || '—'}</td>
                             </tr>
                         `).join('')}
@@ -1610,12 +1687,12 @@ function showCampaignModal(container) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
-        <div class="modal" style="max-width:640px">
+        <div class="modal" style="max-width:900px;max-height:92vh;display:flex;flex-direction:column">
             <div class="modal-header">
                 <h3>Новая рассылка</h3>
                 <button class="modal-close" id="close-campaign-modal"><span class="material-symbols-outlined">close</span></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="overflow-y:auto;flex:1">
                 <div class="form-group">
                     <label class="form-label">Название кампании</label>
                     <input class="form-input" id="camp-name" placeholder="Например: Акция март 2026">
@@ -1624,10 +1701,68 @@ function showCampaignModal(container) {
                     <label class="form-label">Тема письма</label>
                     <input class="form-input" id="camp-subject" placeholder="Тема, которую увидит получатель">
                 </div>
+
+                <!-- Template Selector -->
                 <div class="form-group">
-                    <label class="form-label">Тело письма (HTML)</label>
-                    <textarea class="form-input" id="camp-body" rows="8" placeholder="<h1>Заголовок</h1><p>Текст письма...</p>" style="font-family:monospace;font-size:11px"></textarea>
+                    <label class="form-label">Шаблон письма</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" id="template-selector">
+                        <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--primary);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;background:rgba(107,99,255,0.08)">
+                            <input type="radio" name="camp-template" value="umit" checked style="accent-color:var(--primary)">
+                            <span class="material-symbols-outlined" style="font-size:16px;color:var(--primary)">verified</span>
+                            Umit (по умолчанию)
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500" id="tpl-label-prom28-dvigateli">
+                            <input type="radio" name="camp-template" value="prom28-dvigateli" style="accent-color:#d72710">
+                            <span style="color:#d72710;font-weight:700">P28</span>
+                            Двигатели
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500" id="tpl-label-prom28-pogruzchiki">
+                            <input type="radio" name="camp-template" value="prom28-pogruzchiki" style="accent-color:#d72710">
+                            <span style="color:#d72710;font-weight:700">P28</span>
+                            Погрузчики
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500">
+                            <input type="radio" name="camp-template" value="custom" style="accent-color:var(--warning)">
+                            <span class="material-symbols-outlined" style="font-size:16px;color:var(--warning)">code</span>
+                            Свой HTML
+                        </label>
+                    </div>
                 </div>
+
+                <!-- Umit content area (simple textarea) -->
+                <div class="form-group" id="umit-body-area">
+                    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px">
+                        <span class="material-symbols-outlined" style="font-size:14px;color:var(--success)">verified</span>
+                        Автоматически оформляется в фирменном шаблоне Umit (логотип, шапка, мобильное приложение, футер)
+                    </div>
+                    <textarea class="form-input" id="camp-body" rows="8" placeholder="Здравствуйте!&#10;&#10;Приглашаем вас ознакомиться с новыми заявками на маркетплейсе Umit.&#10;&#10;С уважением,&#10;Команда Umit" style="font-size:13px;line-height:1.5"></textarea>
+                    <p class="form-hint">Можно использовать HTML-теги для форматирования (&lt;b&gt;, &lt;br&gt;, &lt;p&gt;, &lt;ul&gt;)</p>
+                </div>
+
+                <!-- Visual HTML editor (for Prom28 / custom) -->
+                <div class="form-group" id="html-editor-area" style="display:none">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <div style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px">
+                            <span class="material-symbols-outlined" style="font-size:14px;color:#d72710">edit</span>
+                            <span id="editor-mode-hint">Кликайте на текст для редактирования. Все изменения сохраняются.</span>
+                        </div>
+                        <div style="display:flex;gap:6px">
+                            <button class="btn btn-sm btn-secondary" id="btn-visual-mode" style="font-size:11px;padding:4px 10px" disabled>
+                                <span class="material-symbols-outlined" style="font-size:14px">visibility</span> Визуальный
+                            </button>
+                            <button class="btn btn-sm btn-secondary" id="btn-source-mode" style="font-size:11px;padding:4px 10px">
+                                <span class="material-symbols-outlined" style="font-size:14px">code</span> Исходный код
+                            </button>
+                        </div>
+                    </div>
+                    <div id="visual-editor-wrap" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff">
+                        <iframe id="visual-editor" style="width:100%;height:500px;border:none"></iframe>
+                    </div>
+                    <div id="source-editor-wrap" style="display:none">
+                        <textarea class="form-input" id="source-editor" rows="20" style="font-family:monospace;font-size:11px;line-height:1.4;white-space:pre;tab-size:2"></textarea>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label class="form-label">Получатели (по одному на строку)</label>
                     <textarea class="form-input" id="camp-recipients" rows="5" placeholder="email1@example.com&#10;email2@example.com&#10;email3@example.com"></textarea>
@@ -1651,6 +1786,12 @@ function showCampaignModal(container) {
     `;
     document.body.appendChild(overlay);
 
+    // State
+    let currentTemplate = 'umit';
+    let templateHtmlCache = {};
+    let isSourceMode = false;
+
+    // Delay slider
     const delaySlider = overlay.querySelector('#camp-delay');
     const delayVal = overlay.querySelector('#delay-val');
     const delayCenter = overlay.querySelector('#delay-center');
@@ -1659,18 +1800,148 @@ function showCampaignModal(container) {
         delayCenter.textContent = delaySlider.value + ' сек';
     });
 
+    // Close handlers
     overlay.querySelector('#close-campaign-modal').addEventListener('click', () => overlay.remove());
     overlay.querySelector('#cancel-campaign').addEventListener('click', () => overlay.remove());
 
+    // Template selector
+    const umitArea = overlay.querySelector('#umit-body-area');
+    const htmlEditorArea = overlay.querySelector('#html-editor-area');
+    const visualEditorWrap = overlay.querySelector('#visual-editor-wrap');
+    const sourceEditorWrap = overlay.querySelector('#source-editor-wrap');
+    const editorIframe = overlay.querySelector('#visual-editor');
+    const sourceTextarea = overlay.querySelector('#source-editor');
+
+    function updateTemplateLabels() {
+        overlay.querySelectorAll('#template-selector label').forEach(lbl => {
+            const radio = lbl.querySelector('input[type=radio]');
+            if (radio.checked) {
+                lbl.style.borderColor = radio.value === 'umit' ? 'var(--primary)' : (radio.value === 'custom' ? 'var(--warning)' : '#d72710');
+                lbl.style.background = radio.value === 'umit' ? 'rgba(107,99,255,0.08)' : (radio.value === 'custom' ? 'rgba(245,158,11,0.08)' : 'rgba(215,39,16,0.08)');
+            } else {
+                lbl.style.borderColor = 'var(--border)';
+                lbl.style.background = 'transparent';
+            }
+        });
+    }
+
+    function loadVisualEditor(html) {
+        const doc = editorIframe.contentDocument || editorIframe.contentWindow.document;
+        doc.open();
+        doc.write(html);
+        doc.close();
+        // Make content editable
+        setTimeout(() => {
+            doc.body.setAttribute('contenteditable', 'true');
+            doc.body.style.cursor = 'text';
+            // Add editing styles
+            const style = doc.createElement('style');
+            style.textContent = `
+                [contenteditable]:focus { outline: 2px dashed #d72710; outline-offset: 2px; }
+                td:hover, p:hover, a:hover, span:hover { outline: 1px dashed rgba(215,39,16,0.3); cursor: text; }
+            `;
+            doc.head.appendChild(style);
+        }, 100);
+    }
+
+    function getVisualHtml() {
+        const doc = editorIframe.contentDocument || editorIframe.contentWindow.document;
+        if (!doc || !doc.documentElement) return '';
+        // Remove editing artifacts
+        doc.body.removeAttribute('contenteditable');
+        const edited = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        doc.body.setAttribute('contenteditable', 'true');
+        return edited;
+    }
+
+    async function switchTemplate(slug) {
+        currentTemplate = slug;
+        updateTemplateLabels();
+
+        if (slug === 'umit') {
+            umitArea.style.display = '';
+            htmlEditorArea.style.display = 'none';
+        } else {
+            umitArea.style.display = 'none';
+            htmlEditorArea.style.display = '';
+
+            if (slug === 'custom') {
+                // Custom HTML — empty editor
+                sourceTextarea.value = '';
+                loadVisualEditor('<html><body><p>Введите ваш HTML здесь</p></body></html>');
+            } else {
+                // Load Prom28 template
+                if (templateHtmlCache[slug]) {
+                    sourceTextarea.value = templateHtmlCache[slug];
+                    loadVisualEditor(templateHtmlCache[slug]);
+                } else {
+                    try {
+                        const result = await api.get(`/api/campaign-templates/${slug}`);
+                        templateHtmlCache[slug] = result.html;
+                        sourceTextarea.value = result.html;
+                        loadVisualEditor(result.html);
+                    } catch (e) {
+                        showToast('Ошибка загрузки шаблона: ' + e.message, 'error');
+                    }
+                }
+            }
+
+            // Reset to visual mode
+            isSourceMode = false;
+            visualEditorWrap.style.display = '';
+            sourceEditorWrap.style.display = 'none';
+            overlay.querySelector('#btn-visual-mode').disabled = true;
+            overlay.querySelector('#btn-source-mode').disabled = false;
+        }
+    }
+
+    overlay.querySelectorAll('input[name="camp-template"]').forEach(radio => {
+        radio.addEventListener('change', () => switchTemplate(radio.value));
+    });
+
+    // Visual / Source mode toggle
+    overlay.querySelector('#btn-visual-mode').addEventListener('click', () => {
+        // Switching from source to visual
+        isSourceMode = false;
+        const html = sourceTextarea.value;
+        loadVisualEditor(html);
+        visualEditorWrap.style.display = '';
+        sourceEditorWrap.style.display = 'none';
+        overlay.querySelector('#btn-visual-mode').disabled = true;
+        overlay.querySelector('#btn-source-mode').disabled = false;
+    });
+
+    overlay.querySelector('#btn-source-mode').addEventListener('click', () => {
+        // Switching from visual to source
+        isSourceMode = true;
+        sourceTextarea.value = getVisualHtml();
+        visualEditorWrap.style.display = 'none';
+        sourceEditorWrap.style.display = '';
+        overlay.querySelector('#btn-source-mode').disabled = true;
+        overlay.querySelector('#btn-visual-mode').disabled = false;
+    });
+
+    // Save handler
     overlay.querySelector('#save-campaign').addEventListener('click', async () => {
         const name = overlay.querySelector('#camp-name').value.trim();
         const subject = overlay.querySelector('#camp-subject').value.trim();
-        const html_body = overlay.querySelector('#camp-body').value;
         const recipients = overlay.querySelector('#camp-recipients').value;
         const delay_seconds = parseInt(delaySlider.value);
 
         if (!name) { showToast('Укажите название', 'error'); return; }
         if (!subject) { showToast('Укажите тему письма', 'error'); return; }
+
+        let html_body = '';
+        if (currentTemplate === 'umit') {
+            html_body = overlay.querySelector('#camp-body').value.trim();
+            // Auto-convert plain text line breaks to <br> if no HTML tags present
+            if (html_body && !html_body.includes('<')) {
+                html_body = html_body.replace(/\n/g, '<br>');
+            }
+        } else {
+            // Get HTML from editor
+            html_body = isSourceMode ? sourceTextarea.value : getVisualHtml();
+        }
 
         try {
             const result = await api.post('/api/campaigns', { name, subject, html_body, recipients, delay_seconds });
@@ -1730,6 +2001,9 @@ async function renderCampaignDetail(container, campaignId) {
                         <button class="btn btn-secondary btn-sm" id="btn-test">
                             <span class="material-symbols-outlined" style="font-size:14px">science</span> Тест
                         </button>
+                        <button class="btn btn-secondary btn-sm" id="btn-preview">
+                            <span class="material-symbols-outlined" style="font-size:14px">visibility</span> Предпросмотр
+                        </button>
                     ` : ''}
                     ${data.status === 'sending' ? `
                         <button class="btn btn-secondary btn-sm" id="btn-pause">
@@ -1779,6 +2053,19 @@ async function renderCampaignDetail(container, campaignId) {
             <div class="kpi-card">
                 <div class="kpi-label">Ошибок</div>
                 <div class="kpi-value" style="color:var(--danger)">${data.failed_count}</div>
+            </div>
+        </div>
+
+        <!-- Email Preview -->
+        <div class="card mb-16" id="preview-container" style="display:none">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+                <h3>Предпросмотр письма</h3>
+                <button class="btn btn-sm btn-secondary" id="btn-close-preview">
+                    <span class="material-symbols-outlined" style="font-size:14px">close</span> Закрыть
+                </button>
+            </div>
+            <div style="padding:10px;background:#f8f8f8;border-radius:0 0 8px 8px">
+                <iframe id="preview-iframe" style="width:100%;height:600px;border:1px solid var(--border);border-radius:6px;background:#fff" sandbox="allow-same-origin"></iframe>
             </div>
         </div>
 
@@ -1833,18 +2120,75 @@ async function renderCampaignDetail(container, campaignId) {
                 </tbody>
             </table>
         </div>
+
+        <!-- Confirmation Modal (hidden) -->
+        <div id="confirm-modal-overlay" class="modal-overlay" style="display:none">
+            <div class="modal" style="max-width:400px">
+                <div class="modal-header">
+                    <h3>Подтверждение запуска</h3>
+                </div>
+                <div class="modal-body" style="text-align:center;padding:20px">
+                    <span class="material-symbols-outlined" style="font-size:48px;color:var(--primary);margin-bottom:10px">rocket_launch</span>
+                    <p style="margin:10px 0;font-size:14px">Запустить рассылку <strong>«${data.name}»</strong>?</p>
+                    <p style="margin:0;font-size:12px;color:var(--text-muted)">Будет отправлено <strong>${data.total_recipients}</strong> писем</p>
+                </div>
+                <div class="modal-footer" style="justify-content:center;gap:12px">
+                    <button class="btn btn-secondary" id="confirm-cancel">Отмена</button>
+                    <button class="btn btn-primary" id="confirm-send">
+                        <span class="material-symbols-outlined" style="font-size:14px">send</span> Запустить
+                    </button>
+                </div>
+            </div>
+        </div>
     `;
 
     // Event handlers
     const btnSend = container.querySelector('#btn-send');
     if (btnSend) {
-        btnSend.addEventListener('click', async () => {
-            if (!confirm(`Запустить рассылку "${data.name}" на ${data.total_recipients} получателей?`)) return;
+        btnSend.addEventListener('click', () => {
+            const modal = container.querySelector('#confirm-modal-overlay');
+            modal.style.display = 'flex';
+        });
+
+        container.querySelector('#confirm-cancel').addEventListener('click', () => {
+            container.querySelector('#confirm-modal-overlay').style.display = 'none';
+        });
+
+        container.querySelector('#confirm-send').addEventListener('click', async () => {
+            container.querySelector('#confirm-modal-overlay').style.display = 'none';
+            btnSend.disabled = true;
+            btnSend.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span> Запуск...';
             try {
                 await api.post(`/api/campaigns/${campaignId}/send`);
                 showToast('Рассылка запущена!', 'success');
                 renderCampaignDetail(container, campaignId);
-            } catch (e) { showToast(e.message, 'error'); }
+            } catch (e) {
+                showToast('Ошибка запуска: ' + e.message, 'error');
+                btnSend.disabled = false;
+                btnSend.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px">send</span> Запустить';
+            }
+        });
+    }
+
+    // Preview button
+    const btnPreview = container.querySelector('#btn-preview');
+    if (btnPreview) {
+        btnPreview.addEventListener('click', async () => {
+            const previewContainer = container.querySelector('#preview-container');
+            const iframe = container.querySelector('#preview-iframe');
+            previewContainer.style.display = 'block';
+            try {
+                const resp = await fetch(`/api/campaigns/${campaignId}/preview`, { method: 'POST' });
+                const html = await resp.text();
+                iframe.srcdoc = html;
+            } catch (e) {
+                iframe.srcdoc = '<p style="padding:20px;color:red">Ошибка загрузки предпросмотра</p>';
+            }
+            previewContainer.scrollIntoView({ behavior: 'smooth' });
+        });
+
+        container.querySelector('#btn-close-preview').addEventListener('click', () => {
+            container.querySelector('#preview-container').style.display = 'none';
         });
     }
 
@@ -2333,6 +2677,120 @@ async function renderMonitor(container) {
         if (statusData.is_running) {
             setTimeout(() => renderMonitor(container), 5000);
         }
+
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Ошибка загрузки: ${e.message}</p></div>`;
+    }
+}
+
+// ═══════════════════════════════════════════════════
+//  PAGE: Reports (Click Tracking)
+// ═══════════════════════════════════════════════════
+let reportsPage = 1;
+async function renderReports(container) {
+    try {
+        const data = await api.get(`/api/dashboard/clicks?page=${reportsPage}&page_size=25`);
+
+        const formatTimeDelta = (seconds) => {
+            if (!seconds && seconds !== 0) return '—';
+            if (seconds < 60) return `${seconds}с`;
+            if (seconds < 3600) return `${Math.floor(seconds/60)}мин ${seconds%60}с`;
+            const h = Math.floor(seconds/3600);
+            const m = Math.floor((seconds%3600)/60);
+            return `${h}ч ${m}мин`;
+        };
+
+        container.innerHTML = `
+            <!-- KPI Cards -->
+            <div class="kpi-grid" style="margin-bottom:24px">
+                <div class="kpi-card">
+                    <span class="material-symbols-outlined kpi-icon" style="color:var(--primary)">ads_click</span>
+                    <div class="kpi-value">${data.total_clicks}</div>
+                    <div class="kpi-label">Всего кликов</div>
+                </div>
+                <div class="kpi-card">
+                    <span class="material-symbols-outlined kpi-icon" style="color:var(--success)">people</span>
+                    <div class="kpi-value">${data.unique_clickers}</div>
+                    <div class="kpi-label">Уникальных поставщиков</div>
+                </div>
+                <div class="kpi-card">
+                    <span class="material-symbols-outlined kpi-icon" style="color:var(--warning)">send</span>
+                    <div class="kpi-value">${data.total_sent}</div>
+                    <div class="kpi-label">Отправлено писем</div>
+                </div>
+                <div class="kpi-card">
+                    <span class="material-symbols-outlined kpi-icon" style="color:${data.click_rate > 5 ? 'var(--success)' : 'var(--danger)'}">trending_up</span>
+                    <div class="kpi-value">${data.click_rate}%</div>
+                    <div class="kpi-label">Click Rate</div>
+                </div>
+            </div>
+
+            <!-- Clicks Table -->
+            <div class="card">
+                <div class="section-header">
+                    <span class="material-symbols-outlined">touch_app</span>
+                    <h3>Детализация переходов</h3>
+                    <span style="margin-left:auto;font-size:13px;color:var(--text-muted)">За последние 30 дней</span>
+                </div>
+                <div class="card-body" style="padding:0">
+                    ${data.items.length === 0 ? `
+                        <div class="empty-state" style="padding:40px">
+                            <span class="material-symbols-outlined">mouse</span>
+                            <p>Пока нет переходов по ссылкам</p>
+                        </div>
+                    ` : `
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Поставщик</th>
+                                        <th>Email</th>
+                                        <th>Заявка</th>
+                                        <th>Время клика</th>
+                                        <th>Время отклика</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${data.items.map(item => `
+                                        <tr>
+                                            <td><strong>${item.supplier_name}</strong></td>
+                                            <td style="font-size:12px;color:var(--text-muted)">${item.supplier_email}</td>
+                                            <td>
+                                                <a href="#/bids/${item.bid_id}/logs" style="color:var(--primary);text-decoration:none">
+                                                    №${item.bid_source_id}
+                                                </a>
+                                                <span style="font-size:12px;display:block;color:var(--text-muted)">${item.bid_name.substring(0, 40)}${item.bid_name.length > 40 ? '…' : ''}</span>
+                                            </td>
+                                            <td style="font-size:13px">${item.clicked_at ? new Date(item.clicked_at).toLocaleString('ru') : '—'}</td>
+                                            <td>
+                                                <span class="badge ${item.time_to_click_seconds < 3600 ? 'badge-success' : item.time_to_click_seconds < 86400 ? 'badge-warning' : 'badge-default'}" style="font-size:12px">
+                                                    ${formatTimeDelta(item.time_to_click_seconds)}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="display:flex;justify-content:center;gap:8px;padding:16px">
+                            <button class="btn btn-secondary" id="reports-prev" ${reportsPage <= 1 ? 'disabled' : ''}>← Назад</button>
+                            <span style="padding:8px 16px;color:var(--text-muted);font-size:13px">Страница ${data.page}</span>
+                            <button class="btn btn-secondary" id="reports-next" ${data.items.length < 25 ? 'disabled' : ''}>Вперёд →</button>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        // Pagination
+        document.getElementById('reports-prev')?.addEventListener('click', () => {
+            reportsPage = Math.max(1, reportsPage - 1);
+            renderReports(container);
+        });
+        document.getElementById('reports-next')?.addEventListener('click', () => {
+            reportsPage++;
+            renderReports(container);
+        });
 
     } catch (e) {
         container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Ошибка загрузки: ${e.message}</p></div>`;
