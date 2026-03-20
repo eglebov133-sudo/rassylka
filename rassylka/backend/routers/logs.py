@@ -55,9 +55,11 @@ async def list_logs(
             bid_source_id=bid.source_id if bid else 0,
             supplier_name=supplier.company_name if supplier else "—",
             supplier_email=supplier.email if supplier else "—",
+            supplier_website=supplier.website if supplier else "",
             email_status=log.email_status,
             batch_number=batch.batch_number if batch else 0,
             sent_at=log.sent_at,
+            opened_at=log.opened_at,
             clicked_at=log.clicked_at,
             error_message=log.error_message or "",
         ))

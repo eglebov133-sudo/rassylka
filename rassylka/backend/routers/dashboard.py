@@ -205,3 +205,88 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
         "top_suppliers": top_suppliers,
         "daily_chart": daily_chart,
     }
+
+
+@router.get("/clicks")
+async def get_click_report(
+    page: int = 1,
+    page_size: int = 50,
+    days: int = 30,
+    db: AsyncSession = Depends(get_db),
+):
+    """Detailed click report — who clicked, on which bid, when."""
+    import datetime as dt
+    cutoff = dt.datetime.utcnow() - dt.timedelta(days=days)
+
+    # Total clicks
+    total_clicks = (await db.execute(
+        select(func.count(DistributionLog.id))
+        .where(and_(
+            DistributionLog.clicked_at.isnot(None),
+            DistributionLog.clicked_at >= cutoff,
+        ))
+    )).scalar() or 0
+
+    # Unique suppliers who clicked
+    unique_clickers = (await db.execute(
+        select(func.count(func.distinct(DistributionLog.supplier_id)))
+        .where(and_(
+            DistributionLog.clicked_at.isnot(None),
+            DistributionLog.clicked_at >= cutoff,
+        ))
+    )).scalar() or 0
+
+    # Total sent in period
+    total_sent = (await db.execute(
+        select(func.count(DistributionLog.id))
+        .where(and_(
+            DistributionLog.sent_at.isnot(None),
+            DistributionLog.sent_at >= cutoff,
+        ))
+    )).scalar() or 0
+
+    click_rate = round((total_clicks / total_sent * 100), 1) if total_sent > 0 else 0.0
+
+    # Detailed click entries
+    click_result = await db.execute(
+        select(DistributionLog, Supplier, Bid)
+        .join(Supplier, Supplier.id == DistributionLog.supplier_id)
+        .join(DistributionBatch, DistributionBatch.id == DistributionLog.batch_id)
+        .join(Bid, Bid.id == DistributionBatch.bid_id)
+        .where(and_(
+            DistributionLog.clicked_at.isnot(None),
+            DistributionLog.clicked_at >= cutoff,
+        ))
+        .order_by(DistributionLog.clicked_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    items = []
+    for log, supplier, bid in click_result.all():
+        time_to_click = None
+        if log.sent_at and log.clicked_at:
+            delta = log.clicked_at - log.sent_at
+            time_to_click = int(delta.total_seconds())
+
+        items.append({
+            "id": log.id,
+            "supplier_name": supplier.company_name,
+            "supplier_email": supplier.email,
+            "bid_name": bid.name,
+            "bid_source_id": bid.source_id,
+            "bid_id": bid.id,
+            "clicked_at": log.clicked_at.isoformat() if log.clicked_at else None,
+            "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+            "time_to_click_seconds": time_to_click,
+        })
+
+    return {
+        "items": items,
+        "total_clicks": total_clicks,
+        "unique_clickers": unique_clickers,
+        "total_sent": total_sent,
+        "click_rate": click_rate,
+        "page": page,
+        "page_size": page_size,
+    }

@@ -69,6 +69,8 @@ class Supplier(Base):
     website = Column(String(500), default="")
     active = Column(Boolean, default=True)
     unsubscribe_token = Column(String(100), unique=True, nullable=True, index=True)
+    no_response_count = Column(Integer, default=0)  # сколько писем без ответа
+    archived_at = Column(DateTime, nullable=True)  # дата авто-архивирования
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -104,6 +106,7 @@ class DistributionLog(Base):
     click_token = Column(String(100), unique=True, nullable=True, index=True)
     clicked_at = Column(DateTime, nullable=True)
     search_priority = Column(Integer, default=0)  # P1-P8 priority level
+    smtp_account_id = Column(Integer, nullable=True)  # с какого SMTP отправлено
 
     batch = relationship("DistributionBatch", back_populates="logs")
     supplier = relationship("Supplier", back_populates="distribution_logs")
@@ -113,14 +116,22 @@ class RoutingRule(Base):
     __tablename__ = "routing_rules"
 
     id = Column(Integer, primary_key=True, default=1)
-    batch_size = Column(Integer, default=5)
-    batch_timeout_minutes = Column(Integer, default=30)
+    batch_size = Column(Integer, default=5)  # legacy, kept for compat
+    batch_timeout_minutes = Column(Integer, default=30)  # legacy
     matching_sensitivity = Column(Float, default=0.75)
     filter_keywords = Column(JSON, default=list)
     auto_parse = Column(Boolean, default=True)
     auto_distribute = Column(Boolean, default=True)
     parse_interval_minutes = Column(Integer, default=5)
-    email_delay_seconds = Column(Integer, default=30)
+    email_delay_seconds = Column(Integer, default=30)  # legacy
+    # ── Новая схема батчинга (управляемая из панели) ──
+    batch1_size = Column(Integer, default=5)       # кол-во писем в 1-м батче
+    batch1_delay_seconds = Column(Integer, default=120)  # пауза между письмами в 1-м батче (10мин/5=120с)
+    batch2_size = Column(Integer, default=10)      # кол-во писем во 2-м батче
+    batch2_delay_seconds = Column(Integer, default=120)  # пауза между письмами во 2-м батче (20мин/10=120с)
+    escalation_hours = Column(Integer, default=24)  # пауза между 1-м и 2-м батчем (часы)
+    max_no_response = Column(Integer, default=10)  # после скольки писем без ответа → архив
+    auto_supplier_search = Column(Boolean, default=True)  # автоматический поиск поставщиков
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -252,3 +263,39 @@ class MonitorResult(Base):
 
     run = relationship("MonitorRun", back_populates="results")
     test = relationship("MonitorTest", back_populates="results")
+
+
+# ═══════════════════════════════════════════════════
+#  Yandex Direct Promotion
+# ═══════════════════════════════════════════════════
+
+class YandexDirectConfig(Base):
+    __tablename__ = "yd_config"
+
+    id = Column(Integer, primary_key=True, default=1)
+    oauth_token = Column(String(500), default="")
+    client_id = Column(String(200), default="")
+    client_login = Column(String(200), default="")
+    connected = Column(Boolean, default=False)
+    last_sync_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class YandexDirectCampaign(Base):
+    __tablename__ = "yd_campaigns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    yd_campaign_id = Column(Integer, unique=True, nullable=True, index=True)  # ID в Яндекс.Директ
+    name = Column(String(500), nullable=False)
+    status = Column(String(50), default="draft")  # draft/pending/active/paused/stopped/archived
+    yd_status = Column(String(100), default="")    # статус из Директа (ACCEPTED, MODERATION, etc.)
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    cost = Column(Float, default=0.0)              # расход в рублях
+    ctr = Column(Float, default=0.0)               # CTR в %
+    daily_budget = Column(Float, default=300.0)     # дневной бюджет в рублях
+    keywords = Column(JSON, default=list)           # ключевые слова
+    regions = Column(JSON, default=list)            # регионы таргетинга
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

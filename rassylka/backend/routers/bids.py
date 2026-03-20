@@ -138,8 +138,10 @@ async def get_bid_logs(bid_id: int, db: AsyncSession = Depends(get_db)):
                 "batch_status": batch.status,
                 "supplier_name": supplier.company_name,
                 "supplier_email": supplier.email,
+                "supplier_website": supplier.website or "",
                 "email_status": log.email_status,
                 "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+                "opened_at": log.opened_at.isoformat() if log.opened_at else None,
                 "clicked_at": log.clicked_at.isoformat() if log.clicked_at else None,
                 "error_message": log.error_message or "",
             })

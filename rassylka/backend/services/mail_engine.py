@@ -37,7 +37,7 @@ SENDER_NAME = os.getenv("SENDER_NAME", "BidRoute AI")
 TEST_WHITELIST = [e.strip() for e in os.getenv("TEST_WHITELIST", "").split(",") if e.strip()]
 
 # Base URL for tracking links (our VPS or domain)
-APP_BASE_URL = os.getenv("APP_BASE_URL", "http://155.212.223.142")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://umit-info.ru")
 
 # Module-level state
 distributor_state = {
@@ -206,7 +206,7 @@ def build_email_html(bid: Bid, tracking_url: str = "", unsubscribe_url: str = ""
                             </tr>
                             <tr>
                                 <td style="padding-top:20px; text-align:center">
-                                    <a style="display:inline-block; color:#ffffff; text-align:center; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:15px; font-weight:600; line-height:24px; padding:12px 32px; background-color:#27ae60; border-radius:8px; text-decoration:none" href="{source_url}" target="_blank">
+                                    <a style="display:inline-block; color:#ffffff; text-align:center; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:15px; font-weight:600; line-height:24px; padding:12px 32px; background-color:#27ae60; border-radius:8px; text-decoration:none" href="{cta_url}" target="_blank">
                                         Просмотреть заявку на сайте →
                                     </a>
                                 </td>
@@ -284,7 +284,7 @@ def build_email_html(bid: Bid, tracking_url: str = "", unsubscribe_url: str = ""
                         <table align="center" border="0" cellspacing="0" cellpadding="0" role="presentation" style="color:#333333; font-family:'Gilroy',sans-serif,Arial,Helvetica; background:#f9f9f9; margin:0; padding:15px; width:100%; max-width:540px; margin-top:30px; border-radius:8px">
                             <tr>
                                 <td align="left">
-                                    <a href="#" target="_blank" style="color:#828282; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:12px; font-weight:500; line-height:18px; text-decoration:underline" rel="noopener noreferrer">Отписаться от рассылки</a>
+                                    <a href="{unsubscribe_url if unsubscribe_url else '#'}" target="_blank" style="color:#828282; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:12px; font-weight:500; line-height:18px; text-decoration:underline" rel="noopener noreferrer">Отписаться от рассылки</a>
                                 </td>
                                 <td align="right">
                                     <p style="margin:0; color:#828282; font-family:'Gilroy',sans-serif,Arial,Helvetica; font-size:12px; font-weight:500; line-height:18px">
@@ -308,15 +308,16 @@ def build_email_html(bid: Bid, tracking_url: str = "", unsubscribe_url: str = ""
 </html>'''
 
 
-async def send_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Send a single email via SMTP, using round-robin across configured accounts."""
+async def send_email(to_email: str, subject: str, html_body: str) -> tuple[bool, int | None]:
+    """Send a single email via SMTP, using round-robin across configured accounts.
+    Returns (success, smtp_account_id)."""
     from backend.models import SmtpAccount
 
     # WHITELIST MODE: only send to whitelisted addresses
     if TEST_WHITELIST:
         if to_email not in TEST_WHITELIST:
             logger.info(f"WHITELIST: skipping {to_email} (not in whitelist)")
-            return True
+            return True, None
         else:
             logger.info(f"WHITELIST: sending to {to_email} (whitelisted)")
 
@@ -354,10 +355,10 @@ async def send_email(to_email: str, subject: str, html_body: str) -> bool:
 
     if not smtp_user or not smtp_pass:
         logger.warning("No SMTP credentials configured, skipping email")
-        return False
+        return False, None
 
     sender_email = smtp_user
-    domain = sender_email.split("@")[1] if "@" in sender_email else "pochtamt.online"
+    domain = sender_email.split("@")[1] if "@" in sender_email else "umit-info.ru"
 
     msg = MIMEMultipart("alternative")
     msg["From"] = formataddr(("Umit \u2014 \u041c\u0430\u0440\u043a\u0435\u0442\u043f\u043b\u0435\u0439\u0441 \u0437\u0430\u043f\u0447\u0430\u0441\u0442\u0435\u0439", sender_email))
@@ -394,10 +395,10 @@ async def send_email(to_email: str, subject: str, html_body: str) -> bool:
             except Exception:
                 pass
 
-        return True
+        return True, db_account_id
     except Exception as e:
         logger.error(f"Failed to send email to {to_email} via {sender_email}: {type(e).__name__}: {e}")
-        return False
+        return False, db_account_id
 
 
 async def validate_email_mx(email: str) -> tuple[bool, str]:
@@ -507,14 +508,30 @@ async def process_single_bid(session: AsyncSession, bid: Bid, rules: RoutingRule
         .where(DistributionBatch.bid_id == bid.id)
     )
     max_batch = result.scalar() or 0
+    current_batch_num = max_batch + 1
+
+    # ── Новая схема: размер и delay зависят от номера батча ──
+    if current_batch_num == 1:
+        actual_batch_size = getattr(rules, 'batch1_size', None) or rules.batch_size
+        delay_between = getattr(rules, 'batch1_delay_seconds', None) or 120
+    else:
+        actual_batch_size = getattr(rules, 'batch2_size', None) or rules.batch_size
+        delay_between = getattr(rules, 'batch2_delay_seconds', None) or 120
+
+    # Ограничим matching размером батча
+    matching = matching[:actual_batch_size]
+
+    # Escalation timeout: используем escalation_hours (по умолчанию 24ч)
+    esc_hours = getattr(rules, 'escalation_hours', None) or 24
+    timeout_at = datetime.utcnow() + timedelta(hours=esc_hours)
 
     # Create new batch
     batch = DistributionBatch(
         bid_id=bid.id,
-        batch_number=max_batch + 1,
+        batch_number=current_batch_num,
         status=BatchStatus.SENT.value,
         sent_at=datetime.utcnow(),
-        timeout_at=datetime.utcnow() + timedelta(minutes=rules.batch_timeout_minutes),
+        timeout_at=timeout_at,
     )
     session.add(batch)
     await session.flush()
@@ -556,7 +573,7 @@ async def process_single_bid(session: AsyncSession, bid: Bid, rules: RoutingRule
 
         # Build personalized email with tracking + unsubscribe links
         html_body = build_email_html(bid, tracking_url=tracking_url, unsubscribe_url=unsubscribe_url, open_tracking_url=open_tracking_url)
-        success = await send_email(supplier.email, subject, html_body)
+        success, smtp_account_id = await send_email(supplier.email, subject, html_body)
 
         log = DistributionLog(
             batch_id=batch.id,
@@ -566,18 +583,18 @@ async def process_single_bid(session: AsyncSession, bid: Bid, rules: RoutingRule
             sent_at=datetime.utcnow() if success else None,
             click_token=click_token,
             search_priority=priority,
+            smtp_account_id=smtp_account_id,
         )
         session.add(log)
         await session.commit()  # Release lock after each email
 
-        delay = getattr(rules, 'email_delay_seconds', 30) or 30
-        await asyncio.sleep(delay)
+        await asyncio.sleep(delay_between)
 
     # Finalize batch status
     batch.status = BatchStatus.WAITING.value
     await session.commit()
 
-    logger.info(f"Bid {bid.source_id}: batch {batch.batch_number} sent to {len(matching)} suppliers")
+    logger.info(f"Bid {bid.source_id}: batch {current_batch_num} sent to {len(matching)} suppliers (delay={delay_between}s, escalation={esc_hours}h)")
 
 
 async def check_timeouts(session: AsyncSession, rules: RoutingRule):
@@ -684,16 +701,82 @@ async def run_distribution_cycle():
 
 
 
+async def check_unresponsive_suppliers():
+    """Check suppliers who never respond and archive them.
+    Logic: if a supplier was sent emails from multiple SMTP accounts
+    and never clicked/opened, increment no_response_count.
+    After max_no_response (configurable) → archive."""
+    async with async_session() as session:
+        # Get max_no_response from rules
+        r = await session.execute(select(RoutingRule).where(RoutingRule.id == 1))
+        rules = r.scalar_one_or_none()
+        max_nr = (getattr(rules, 'max_no_response', None) or 10) if rules else 10
+
+        # Find suppliers with sent emails but zero clicks/opens
+        result = await session.execute(
+            select(
+                Supplier.id,
+                func.count(DistributionLog.id).label('total_sent'),
+                func.count(func.distinct(DistributionLog.smtp_account_id)).label('unique_smtp'),
+            )
+            .join(DistributionLog, DistributionLog.supplier_id == Supplier.id)
+            .where(
+                and_(
+                    Supplier.active == True,
+                    Supplier.archived_at.is_(None),
+                    DistributionLog.email_status == EmailStatus.SENT.value,
+                )
+            )
+            .group_by(Supplier.id)
+            .having(func.count(DistributionLog.id) >= max_nr)
+        )
+
+        for row in result.all():
+            supplier_id = row[0]
+            total_sent = row[1]
+
+            # Check if supplier ever clicked or opened
+            click_check = await session.execute(
+                select(func.count(DistributionLog.id))
+                .where(
+                    and_(
+                        DistributionLog.supplier_id == supplier_id,
+                        DistributionLog.clicked_at.isnot(None),
+                    )
+                )
+            )
+            clicks = click_check.scalar() or 0
+            if clicks > 0:
+                continue  # has responded at least once
+
+            # Archive the supplier
+            supplier = await session.get(Supplier, supplier_id)
+            if supplier:
+                supplier.active = False
+                supplier.archived_at = datetime.utcnow()
+                supplier.no_response_count = total_sent
+                logger.info(f"Archived unresponsive supplier: {supplier.company_name} "
+                           f"({supplier.email}) after {total_sent} emails without response")
+
+        await session.commit()
+
+
 async def distributor_loop():
     """Background loop that runs distribution cycles."""
     logger.info("Distributor loop started")
     distributor_state["running"] = True
 
+    cycle_count = 0
     while True:
         try:
             await run_distribution_cycle()
             distributor_state["last_run"] = datetime.utcnow()
             distributor_state["error"] = None
+
+            # Check unresponsive suppliers every 10 cycles (~10 minutes)
+            cycle_count += 1
+            if cycle_count % 10 == 0:
+                await check_unresponsive_suppliers()
         except Exception as e:
             logger.error(f"Distributor loop error: {e}")
             distributor_state["error"] = str(e)

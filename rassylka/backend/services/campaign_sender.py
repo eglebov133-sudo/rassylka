@@ -24,7 +24,7 @@ from backend.models import (
 
 logger = logging.getLogger("bidroute.campaign_sender")
 
-APP_BASE_URL = os.getenv("APP_BASE_URL", "http://155.212.223.142")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://umit-info.ru")
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.mail.ru")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER = os.getenv("SMTP_USER", "")
@@ -291,7 +291,7 @@ async def send_campaign_email(
         return False, "No SMTP credentials configured"
 
     sender_email = creds["user"]
-    domain = sender_email.split("@")[1] if "@" in sender_email else "pochtamt.online"
+    domain = sender_email.split("@")[1] if "@" in sender_email else "umit-info.ru"
 
     msg = MIMEMultipart("mixed")
     msg["From"] = formataddr(("Umit — Маркетплейс запчастей", sender_email))

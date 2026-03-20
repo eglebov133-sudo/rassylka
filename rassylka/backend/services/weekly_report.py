@@ -171,7 +171,7 @@ async def generate_report_html() -> tuple[str, dict]:
         </div>
 
         <div style="padding:16px 24px;background:#f8fafc;text-align:center;font-size:12px;color:#999">
-            Автоматический отчёт системы BidRoute AI · <a href="https://pochtamt.online" style="color:#6366f1">Перейти в панель</a>
+            Автоматический отчёт системы BidRoute AI · <a href="https://umit-info.ru" style="color:#6366f1">Перейти в панель</a>
         </div>
     </div>
     </body></html>

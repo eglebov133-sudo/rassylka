@@ -96,6 +96,14 @@ class RoutingRuleResponse(BaseModel):
     auto_distribute: bool
     parse_interval_minutes: int = 5
     email_delay_seconds: int = 30
+    # Новая схема батчинга
+    batch1_size: int = 5
+    batch1_delay_seconds: int = 120
+    batch2_size: int = 10
+    batch2_delay_seconds: int = 120
+    escalation_hours: int = 24
+    max_no_response: int = 10
+    auto_supplier_search: bool = True
 
     class Config:
         from_attributes = True
@@ -110,6 +118,14 @@ class RoutingRuleUpdate(BaseModel):
     auto_distribute: Optional[bool] = None
     parse_interval_minutes: Optional[int] = None
     email_delay_seconds: Optional[int] = None
+    # Новая схема батчинга
+    batch1_size: Optional[int] = None
+    batch1_delay_seconds: Optional[int] = None
+    batch2_size: Optional[int] = None
+    batch2_delay_seconds: Optional[int] = None
+    escalation_hours: Optional[int] = None
+    max_no_response: Optional[int] = None
+    auto_supplier_search: Optional[bool] = None
 
 
 # ── Dashboard ──
@@ -142,9 +158,11 @@ class LogEntry(BaseModel):
     bid_source_id: int
     supplier_name: str
     supplier_email: str
+    supplier_website: str = ""
     email_status: str
     batch_number: int
     sent_at: Optional[datetime] = None
+    opened_at: Optional[datetime] = None
     clicked_at: Optional[datetime] = None
     error_message: str = ""
 

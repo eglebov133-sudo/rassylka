@@ -89,6 +89,7 @@ const routes = {
     '/smtp': renderSmtp,
     '/campaigns': renderCampaigns,
     '/reports': renderReports,
+    '/promotion': renderPromotion,
     '/monitor': renderMonitor,
 };
 
@@ -101,6 +102,7 @@ const pageTitles = {
     '/smtp': 'SMTP-аккаунты',
     '/campaigns': 'Рассылки',
     '/reports': 'Отчёты по переходам',
+    '/promotion': 'Продвижение',
     '/monitor': 'Мониторинг umit.pro',
 };
 
@@ -1099,7 +1101,7 @@ async function renderLogs(container) {
                                     <a href="#/bids/${log.bid_id}/logs" style="color:var(--primary);text-decoration:none;font-weight:600" title="Открыть логи заявки">UM-${log.bid_source_id}</a>
                                     <br><span style="font-size:11px;color:var(--text-muted);max-width:150px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${log.bid_name}</span>
                                 </td>
-                                <td style="font-weight:500">${log.supplier_name}</td>
+                                <td style="font-weight:500">${log.supplier_website ? `<a href="${log.supplier_website.startsWith('http') ? log.supplier_website : 'https://' + log.supplier_website}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none" title="${log.supplier_website}">${log.supplier_name} <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;opacity:0.5">open_in_new</span></a>` : log.supplier_name}</td>
                                 <td style="color:var(--primary);font-size:12px">${log.supplier_email}</td>
                                 <td style="text-align:center;font-weight:600">#${log.batch_number}</td>
                                 <td>
@@ -1273,7 +1275,7 @@ async function renderBidLogs(container, bidId) {
                         ${filtered.map(l => `
                             <tr>
                                 <td style="text-align:center;font-weight:600">#${l.batch_number}</td>
-                                <td style="font-weight:500">${l.supplier_name}</td>
+                                <td style="font-weight:500">${l.supplier_website ? `<a href="${l.supplier_website.startsWith('http') ? l.supplier_website : 'https://' + l.supplier_website}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none" title="${l.supplier_website}">${l.supplier_name} <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;opacity:0.5">open_in_new</span></a>` : l.supplier_name}</td>
                                 <td style="color:var(--primary);font-size:12px">${l.supplier_email}</td>
                                 <td>
                                     <div style="display:flex;align-items:center;gap:4px">
@@ -2796,6 +2798,342 @@ async function renderReports(container) {
         container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Ошибка загрузки: ${e.message}</p></div>`;
     }
 }
+
+// ═══════════════════════════════════════════════════
+//  PAGE: Promotion (Yandex Direct)
+// ═══════════════════════════════════════════════════
+async function renderPromotion(container) {
+    const [config, campaignsData] = await Promise.all([
+        api.get('/api/promotion/config'),
+        api.get('/api/promotion/campaigns').catch(() => ({ campaigns: [], totals: {} })),
+    ]);
+
+    const t = campaignsData.totals || {};
+    const campaigns = campaignsData.campaigns || [];
+    const hasToken = config.has_token;
+    const connected = config.connected;
+    const hasCampaigns = campaigns.length > 0;
+
+    // State 1: Not connected — show connect form
+    if (!hasToken) {
+        container.innerHTML = `
+            <div style="max-width:600px;margin:40px auto;text-align:center">
+                <div style="width:80px;height:80px;background:linear-gradient(135deg,#f59e0b,#ef4444);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 24px">
+                    <span class="material-symbols-outlined" style="font-size:40px;color:#fff">trending_up</span>
+                </div>
+                <h2 style="font-size:28px;font-weight:800;margin:0 0 8px">Продвижение в Яндекс.Директ</h2>
+                <p style="color:var(--text-secondary);font-size:15px;margin:0 0 32px;line-height:1.6">
+                    Запустите рекламу ваших услуг в поиске Яндекса.
+                    Подключите аккаунт Яндекс.Директ и управляйте кампаниями прямо из панели.
+                </p>
+
+                <div class="card" style="text-align:left;padding:24px">
+                    <h3 style="margin:0 0 16px;font-size:16px">Подключение аккаунта</h3>
+                    <div class="form-group">
+                        <label class="form-label">OAuth-токен *</label>
+                        <p class="form-hint">Получите на <a href="https://oauth.yandex.ru/" target="_blank" style="color:var(--primary)">oauth.yandex.ru</a></p>
+                        <input class="form-input" id="yd-token" type="password" placeholder="y0_AgAAAA...">
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label class="form-label">Client ID</label>
+                            <input class="form-input" id="yd-client-id" placeholder="ID приложения">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Логин</label>
+                            <input class="form-input" id="yd-login" placeholder="login (необязательно)">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="btn-yd-connect" style="width:100%;margin-top:8px">
+                        <span class="material-symbols-outlined">link</span> Подключить Яндекс.Директ
+                    </button>
+                </div>
+
+                <div style="margin-top:24px;padding:16px;background:var(--bg-input);border-radius:12px;text-align:left">
+                    <p style="margin:0;font-size:13px;color:var(--text-muted)">
+                        <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:4px">info</span>
+                        Для получения токена: зарегистрируйте приложение на <a href="https://oauth.yandex.ru/client/new" target="_blank" style="color:var(--primary)">oauth.yandex.ru/client/new</a>,
+                        выберите права «Яндекс.Директ», получите токен через OAuth-авторизацию.
+                    </p>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('btn-yd-connect')?.addEventListener('click', async () => {
+            const token = document.getElementById('yd-token').value.trim();
+            if (!token) return showToast('Укажите OAuth-токен', 'error');
+
+            const btn = document.getElementById('btn-yd-connect');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Проверка...';
+
+            try {
+                const result = await api.post('/api/promotion/config', {
+                    oauth_token: token,
+                    client_id: document.getElementById('yd-client-id').value.trim(),
+                    client_login: document.getElementById('yd-login').value.trim(),
+                });
+                showToast(result.message, result.connected ? 'success' : 'error');
+                if (result.connected) setTimeout(() => renderPromotion(container), 500);
+                else { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined">link</span> Подключить'; }
+            } catch (e) {
+                showToast('Ошибка: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined">link</span> Подключить';
+            }
+        });
+        return;
+    }
+
+    // State 2: Connected but no campaigns — show enable button
+    // State 3: Has campaigns — show dashboard
+    const statusColors = { active: 'var(--success)', paused: 'var(--warning)', pending: 'var(--primary)', stopped: 'var(--danger)', draft: 'var(--text-muted)', archived: 'var(--text-muted)' };
+    const statusLabels = { active: 'Активна', paused: 'На паузе', pending: 'Модерация', stopped: 'Остановлена', draft: 'Черновик', archived: 'Архив' };
+
+    container.innerHTML = `
+        <div class="action-bar" style="margin-bottom:24px">
+            <div style="display:flex;align-items:center;gap:12px">
+                <div style="width:10px;height:10px;border-radius:50%;background:${connected ? 'var(--success)' : 'var(--danger)'}"></div>
+                <span style="font-size:14px;font-weight:600;color:${connected ? 'var(--success)' : 'var(--danger)'}">
+                    ${connected ? 'Подключён к Яндекс.Директ' : 'Нет подключения к Яндекс.Директ'}
+                </span>
+                ${config.client_login ? `<span style="font-size:12px;color:var(--text-muted)">(${config.client_login})</span>` : ''}
+            </div>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-secondary" id="btn-yd-sync">
+                    <span class="material-symbols-outlined">sync</span> Синхронизировать
+                </button>
+                <button class="btn btn-primary" id="btn-yd-enable">
+                    <span class="material-symbols-outlined">add_circle</span> Новая кампания
+                </button>
+            </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px">
+            <div class="kpi-card">
+                <div class="kpi-header"><div class="kpi-icon primary"><span class="material-symbols-outlined">visibility</span></div></div>
+                <div class="kpi-label">Показы</div>
+                <div class="kpi-value">${(t.impressions || 0).toLocaleString()}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header"><div class="kpi-icon success"><span class="material-symbols-outlined">ads_click</span></div></div>
+                <div class="kpi-label">Клики</div>
+                <div class="kpi-value">${(t.clicks || 0).toLocaleString()}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header"><div class="kpi-icon info"><span class="material-symbols-outlined">percent</span></div></div>
+                <div class="kpi-label">CTR</div>
+                <div class="kpi-value">${t.ctr || 0}%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header"><div class="kpi-icon warning"><span class="material-symbols-outlined">payments</span></div></div>
+                <div class="kpi-label">Расход</div>
+                <div class="kpi-value">${(t.cost || 0).toLocaleString()} ₽</div>
+            </div>
+        </div>
+
+        ${!hasCampaigns ? `
+        <!-- No campaigns — big enable button -->
+        <div class="card" style="text-align:center;padding:60px 40px">
+            <div style="width:80px;height:80px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 24px">
+                <span class="material-symbols-outlined" style="font-size:40px;color:#fff">rocket_launch</span>
+            </div>
+            <h3 style="font-size:22px;font-weight:700;margin:0 0 8px">Запустите первую кампанию</h3>
+            <p style="color:var(--text-secondary);margin:0 0 24px;max-width:400px;margin-left:auto;margin-right:auto">
+                Нажмите кнопку ниже, и мы автоматически создадим рекламную кампанию<br>в Яндекс.Директ с оптимальными настройками.
+            </p>
+            <button class="btn btn-primary" id="btn-yd-enable-big" style="font-size:16px;padding:14px 40px">
+                <span class="material-symbols-outlined">trending_up</span>
+                Включить продвижение
+            </button>
+        </div>` : `
+        <!-- Campaigns table -->
+        <div class="card">
+            <div class="card-header">
+                <h3>Рекламные кампании</h3>
+                <span style="font-size:13px;color:var(--text-muted)">${t.active || 0} активных из ${t.total || 0}</span>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Кампания</th>
+                        <th>Статус</th>
+                        <th>Показы</th>
+                        <th>Клики</th>
+                        <th>CTR</th>
+                        <th>Расход</th>
+                        <th>Бюджет/день</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${campaigns.map(c => `
+                        <tr>
+                            <td style="font-weight:600">${c.name}</td>
+                            <td><span style="color:${statusColors[c.status] || 'var(--text-muted)'};font-weight:600;font-size:13px">${statusLabels[c.status] || c.status}</span></td>
+                            <td>${c.impressions.toLocaleString()}</td>
+                            <td style="font-weight:600;color:var(--primary)">${c.clicks.toLocaleString()}</td>
+                            <td>${c.ctr}%</td>
+                            <td>${c.cost.toLocaleString()} ₽</td>
+                            <td style="color:var(--text-secondary)">${c.daily_budget} ₽</td>
+                            <td>
+                                ${c.status === 'active' ? `
+                                    <button class="btn btn-sm btn-secondary" onclick="ydPauseCampaign(${c.id})" title="Поставить на паузу">
+                                        <span class="material-symbols-outlined">pause</span>
+                                    </button>` : c.status === 'paused' ? `
+                                    <button class="btn btn-sm btn-primary" onclick="ydResumeCampaign(${c.id})" title="Возобновить">
+                                        <span class="material-symbols-outlined">play_arrow</span>
+                                    </button>` : `
+                                    <span style="color:var(--text-muted);font-size:12px">${c.yd_status || '—'}</span>`}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>`}
+
+        ${config.last_sync ? `<p style="text-align:right;font-size:12px;color:var(--text-muted);margin-top:12px">Последняя синхронизация: ${new Date(config.last_sync).toLocaleString('ru-RU')}</p>` : ''}
+
+        <!-- Settings -->
+        <div style="margin-top:24px;text-align:right">
+            <button class="btn btn-sm" style="color:var(--text-muted);font-size:12px" id="btn-yd-disconnect">
+                <span class="material-symbols-outlined" style="font-size:14px">link_off</span> Отключить Яндекс.Директ
+            </button>
+        </div>
+    `;
+
+    // ── Event handlers ──
+    document.getElementById('btn-yd-sync')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-yd-sync');
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Синхронизация...';
+        try {
+            const r = await api.post('/api/promotion/sync', {});
+            showToast(r.message, 'success');
+            setTimeout(() => renderPromotion(container), 500);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined">sync</span> Синхронизировать';
+        }
+    });
+
+    // Enable promotion — both buttons
+    const enableHandler = async () => {
+        showEnableCampaignModal(container);
+    };
+    document.getElementById('btn-yd-enable')?.addEventListener('click', enableHandler);
+    document.getElementById('btn-yd-enable-big')?.addEventListener('click', enableHandler);
+
+    document.getElementById('btn-yd-disconnect')?.addEventListener('click', async () => {
+        if (!confirm('Отключить Яндекс.Директ? Кампании останутся в Директе, но больше не будут отображаться здесь.')) return;
+        try {
+            await api.del('/api/promotion/config');
+            showToast('Яндекс.Директ отключён', 'success');
+            setTimeout(() => renderPromotion(container), 300);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+}
+
+function showEnableCampaignModal(container) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Новая рекламная кампания</h3>
+                <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Название кампании</label>
+                    <input class="form-input" id="yd-camp-name" value="Запчасти — Umit">
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Дневной бюджет</label>
+                        <div class="form-input-suffix">
+                            <input class="form-input" type="number" id="yd-camp-budget" value="300" min="100" step="50">
+                            <span class="suffix">₽/день</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Регион</label>
+                        <select class="form-input" id="yd-camp-region">
+                            <option value="225" selected>Россия</option>
+                            <option value="1">Москва и МО</option>
+                            <option value="10174">Санкт-Петербург и ЛО</option>
+                            <option value="11079">Урал</option>
+                            <option value="11111">Сибирь</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Ключевые слова</label>
+                    <p class="form-hint">По одному на строку.</p>
+                    <textarea class="form-input" id="yd-camp-keywords" rows="4" style="font-size:13px">запчасти оптом
+запчасти для спецтехники
+купить запчасти
+заказать запчасти</textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Отмена</button>
+                <button class="btn btn-primary" id="btn-yd-create-campaign">
+                    <span class="material-symbols-outlined">rocket_launch</span> Запустить
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    document.getElementById('btn-yd-create-campaign')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-yd-create-campaign');
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Создание...';
+
+        const name = document.getElementById('yd-camp-name').value.trim() || 'Запчасти — Umit';
+        const budget = parseFloat(document.getElementById('yd-camp-budget').value) || 300;
+        const region = parseInt(document.getElementById('yd-camp-region').value) || 225;
+        const keywords = document.getElementById('yd-camp-keywords').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+        try {
+            const result = await api.post('/api/promotion/campaigns/enable', {
+                name, daily_budget: budget, keywords, regions: [region],
+            });
+            showToast(result.message, 'success');
+            overlay.remove();
+            setTimeout(() => renderPromotion(container), 500);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined">rocket_launch</span> Запустить';
+        }
+    });
+}
+
+window.ydPauseCampaign = async function(id) {
+    if (!confirm('Приостановить кампанию?')) return;
+    try {
+        const r = await api.post(`/api/promotion/campaigns/${id}/pause`, {});
+        showToast(r.message, 'success');
+        handleRoute();
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+};
+
+window.ydResumeCampaign = async function(id) {
+    try {
+        const r = await api.post(`/api/promotion/campaigns/${id}/resume`, {});
+        showToast(r.message, 'success');
+        handleRoute();
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+};
 
 // ══════════════════════════════════════════
 //  INIT
