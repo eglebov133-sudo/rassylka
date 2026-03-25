@@ -88,6 +88,7 @@ const routes = {
     '/logs': renderLogs,
     '/smtp': renderSmtp,
     '/campaigns': renderCampaigns,
+    '/telegram': renderTelegram,
     '/reports': renderReports,
     '/promotion': renderPromotion,
     '/monitor': renderMonitor,
@@ -101,6 +102,7 @@ const pageTitles = {
     '/logs': 'Логи рассылки',
     '/smtp': 'SMTP-аккаунты',
     '/campaigns': 'Рассылки',
+    '/telegram': 'TG Рассылка',
     '/reports': 'Отчёты по переходам',
     '/promotion': 'Продвижение',
     '/monitor': 'Мониторинг umit.pro',
@@ -166,6 +168,24 @@ async function handleRoute() {
         content.innerHTML = '<div class="spinner"></div>';
         try {
             await renderCampaignDetail(content, campaignId);
+        } catch (e) {
+            content.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Ошибка загрузки: ${e.message}</p></div>`;
+        }
+        return;
+    }
+
+    // Check for TG campaign detail route: /telegram/123
+    const tgCampaignMatch = route.match(/^\/telegram\/(\d+)$/);
+    if (tgCampaignMatch) {
+        const tgCampaignId = parseInt(tgCampaignMatch[1]);
+        document.getElementById('page-title').textContent = 'Детали TG-кампании';
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.page === 'telegram');
+        });
+        const content = document.getElementById('content-area');
+        content.innerHTML = '<div class="spinner"></div>';
+        try {
+            await renderTgCampaignDetail(content, tgCampaignId);
         } catch (e) {
             content.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Ошибка загрузки: ${e.message}</p></div>`;
         }
@@ -3130,6 +3150,535 @@ window.ydPauseCampaign = async function(id) {
 window.ydResumeCampaign = async function(id) {
     try {
         const r = await api.post(`/api/promotion/campaigns/${id}/resume`, {});
+        showToast(r.message, 'success');
+        handleRoute();
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+};
+
+// ══════════════════════════════════════════
+//  PAGE: Telegram Mailing
+// ══════════════════════════════════════════
+
+function tgStatusBadge(status) {
+    const labels = {
+        draft: 'Черновик', sending: 'Отправка', paused: 'Пауза',
+        completed: 'Завершена', cancelled: 'Отменена',
+    };
+    const cls = {
+        draft: 'pending', sending: 'distributing', paused: 'waiting',
+        completed: 'fully_notified', cancelled: 'failed',
+    };
+    return `<span class="badge ${cls[status] || status}">${labels[status] || status}</span>`;
+}
+
+let tgPage = 1;
+
+async function renderTelegram(container) {
+    const [data, tgStatus] = await Promise.all([
+        api.get(`/api/telegram/campaigns?page=${tgPage}&page_size=20`),
+        api.get('/api/telegram/status').catch(() => ({ connected: false })),
+    ]);
+
+    const parser = tgStatus.parser || {};
+    const senders = tgStatus.senders || [];
+
+    container.innerHTML = `
+        <div class="action-bar">
+            <div style="display:flex;align-items:center;gap:12px">
+                <span style="font-size:13px;color:var(--text-secondary)">Кампаний: <strong>${data.total}</strong></span>
+                <span style="font-size:13px;color:var(--text-secondary)">Пропускная способность: <strong>${tgStatus.daily_capacity || 0}</strong> сообщений/день</span>
+            </div>
+            <button class="btn btn-primary" id="btn-new-tg-campaign">
+                <span class="material-symbols-outlined">add</span> Новая TG-кампания
+            </button>
+        </div>
+
+        <!-- Accounts -->
+        <div class="card mb-24" style="padding:16px 20px">
+            <h4 style="margin:0 0 12px;font-size:14px;display:flex;align-items:center;gap:6px">
+                <span class="material-symbols-outlined" style="font-size:18px">group</span>
+                Аккаунты Telegram
+            </h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+                <!-- Parser -->
+                <div style="padding:12px;border-radius:8px;border:1px solid rgba(245,158,11,0.3);background:rgba(245,158,11,0.05)">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                        <span class="status-dot ${parser.connected ? 'online' : ''}"></span>
+                        <span style="font-size:12px;font-weight:600;color:#f59e0b">🔍 ПАРСЕР</span>
+                        ${parser.connected ? `<span class="material-symbols-outlined tg-rename-btn" data-session="${parser.session_name || ''}" data-name="${parser.user?.first_name || ''}" data-last="${parser.user?.last_name || ''}" style="font-size:14px;cursor:pointer;margin-left:auto;color:var(--text-muted)" title="Переименовать">edit</span>` : ''}
+                    </div>
+                    ${parser.user ? `
+                        <div style="font-size:13px;font-weight:500">${parser.user.first_name || ''} ${parser.user.last_name || ''}</div>
+                        <div style="font-size:11px;color:var(--text-muted)">${parser.user.phone || ''}</div>
+                    ` : '<div style="font-size:12px;color:var(--text-muted)">Не подключен</div>'}
+                    <div style="margin-top:6px;padding:4px 8px;background:rgba(245,158,11,0.1);border-radius:4px;font-size:10px;color:#92600a;line-height:1.4">
+                        ⚠️ Добавьте этот аккаунт <strong>админом</strong> в канал для загрузки подписчиков
+                    </div>
+                </div>
+                <!-- Senders -->
+                ${senders.map((s, i) => `
+                    <div style="padding:12px;border-radius:8px;border:1px solid ${s.connected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'};background:${s.connected ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)'}">
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                            <span class="status-dot ${s.connected ? 'online' : ''}"></span>
+                            <span style="font-size:12px;font-weight:600;color:${s.connected ? '#10b981' : '#ef4444'}">📤 Отправитель ${i + 1}</span>
+                            ${s.connected ? `<span class="material-symbols-outlined tg-rename-btn" data-session="${s.session_name}" data-name="${s.user_info?.first_name || ''}" data-last="${s.user_info?.last_name || ''}" style="font-size:14px;cursor:pointer;margin-left:auto;color:var(--text-muted)" title="Переименовать">edit</span>` : ''}
+                        </div>
+                        ${s.user_info ? `
+                            <div style="font-size:13px;font-weight:500">${s.user_info.first_name || ''} ${s.user_info.last_name || ''}</div>
+                            <div style="font-size:11px;color:var(--text-muted)">${s.user_info.phone || ''}</div>
+                        ` : '<div style="font-size:12px;color:var(--text-muted)">Не подключен</div>'}
+                        <div style="margin-top:4px;font-size:10px;color:var(--text-muted)">Лимит: 15 сообщ./день</div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="card mb-24" style="padding:16px 20px;background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.06));border:1px solid rgba(99,102,241,0.15)">
+            <div style="display:flex;gap:12px;align-items:flex-start">
+                <span class="material-symbols-outlined" style="color:var(--primary);font-size:24px;margin-top:2px">info</span>
+                <div style="font-size:13px;line-height:1.6;color:var(--text-secondary)">
+                    <strong style="color:var(--text);font-size:14px">📋 Как работает TG-рассылка</strong><br>
+                    <div style="margin-top:8px;display:grid;gap:6px">
+                        <div>1️⃣ <strong>Создайте кампанию</strong> — укажите название, текст сообщения и канал-источник подписчиков</div>
+                        <div>2️⃣ <strong>Загрузите подписчиков</strong> — нажмите кнопку на странице кампании для загрузки списка</div>
+                        <div>3️⃣ <strong>Запустите рассылку</strong> — юзербот отправит сообщения каждому в ЛС с заданной задержкой</div>
+                    </div>
+                    <div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.1);border-radius:6px;border-left:3px solid #f59e0b">
+                        <strong style="color:#f59e0b">⚠️ Важно:</strong> Для загрузки подписчиков из канала юзербот-аккаунт должен быть <strong>администратором</strong> этого канала. Без прав админа Telegram не отдаёт список участников.
+                    </div>
+                    <div style="margin-top:8px;padding:8px 12px;background:rgba(239,68,68,0.08);border-radius:6px;border-left:3px solid #ef4444">
+                        <strong style="color:#ef4444">🛡️ Жёсткие лимиты:</strong> Максимум <strong>15 сообщений за 24 часа</strong> (новый аккаунт). Мин. задержка <strong>35 сек</strong>. При достижении лимита рассылка авто-пауза.
+                    </div>
+                    <div style="margin-top:8px;padding:8px 12px;background:rgba(168,85,247,0.08);border-radius:6px;border-left:3px solid #a855f7">
+                        <strong style="color:#a855f7">📨 Жалобы на спам:</strong> Получатели могут нажать «Пожаловаться на спам» — <strong>4-5 жалоб = временный бан, 10+ = перманентный бан</strong>. Пишите полезный контент, не агрессивную рекламу!
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Название</th>
+                        <th>Канал</th>
+                        <th>Статус</th>
+                        <th>Прогресс</th>
+                        <th>Отправлено</th>
+                        <th>Ошибки</th>
+                        <th>Дата</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.items.length === 0 ? '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">Нет TG-кампаний. Создайте первую!</td></tr>' : ''}
+                    ${data.items.map(c => `
+                        <tr>
+                            <td><a href="#/telegram/${c.id}" style="color:var(--primary);font-weight:600;text-decoration:none">#${c.id}</a></td>
+                            <td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.name}">${c.name}</td>
+                            <td style="color:var(--text-secondary);font-size:13px">${c.source_channel || '—'}</td>
+                            <td>${tgStatusBadge(c.status)}</td>
+                            <td>
+                                <div style="display:flex;align-items:center;gap:8px">
+                                    <div style="flex:1;height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden">
+                                        <div style="height:100%;width:${c.progress}%;background:${c.status === 'completed' ? 'var(--success)' : 'var(--primary)'};border-radius:3px;transition:width 0.3s"></div>
+                                    </div>
+                                    <span style="font-size:12px;color:var(--text-muted);min-width:32px">${c.progress}%</span>
+                                </div>
+                            </td>
+                            <td style="text-align:center;color:var(--success)">${c.sent_count}</td>
+                            <td style="text-align:center;color:${c.failed_count > 0 ? 'var(--danger)' : 'var(--text-muted)'}">${c.failed_count}</td>
+                            <td style="color:var(--text-muted);font-size:12px">${timeAgo(c.created_at)}</td>
+                            <td>
+                                <div style="display:flex;gap:4px">
+                                    ${c.status === 'draft' || c.status === 'paused' ? `<button class="btn btn-sm btn-primary" onclick="tgSendCampaign(${c.id})" title="Запустить"><span class="material-symbols-outlined" style="font-size:16px">play_arrow</span></button>` : ''}
+                                    ${c.status === 'sending' ? `<button class="btn btn-sm btn-secondary" onclick="tgPauseCampaign(${c.id})" title="Пауза"><span class="material-symbols-outlined" style="font-size:16px">pause</span></button>` : ''}
+                                    ${c.status !== 'sending' ? `<button class="btn btn-sm btn-danger" onclick="tgDeleteCampaign(${c.id})" title="Удалить"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button>` : ''}
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination" id="tg-pagination"></div>
+    `;
+
+    const totalPages = Math.ceil(data.total / 20);
+    renderPagination('tg-pagination', tgPage, totalPages, (p) => { tgPage = p; renderTelegram(container); });
+
+    document.getElementById('btn-new-tg-campaign').addEventListener('click', () => showCreateTgCampaignModal(container));
+
+    // Rename buttons
+    document.querySelectorAll('.tg-rename-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const session = btn.dataset.session;
+            const currentName = btn.dataset.name;
+            const currentLast = btn.dataset.last;
+            const input = prompt('Введите новое имя (Имя Фамилия):', `${currentName} ${currentLast}`.trim());
+            if (!input) return;
+            const parts = input.trim().split(/\s+/);
+            const firstName = parts[0] || '';
+            const lastName = parts.slice(1).join(' ') || '';
+            try {
+                const r = await api.post('/api/telegram/accounts/rename', { session_name: session, first_name: firstName, last_name: lastName });
+                showToast(r.message, 'success');
+                await renderTelegram(container);
+            } catch (e) {
+                showToast('Ошибка: ' + e.message, 'error');
+            }
+        });
+    });
+}
+
+function showCreateTgCampaignModal(container) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:560px">
+            <div class="modal-header">
+                <h3>Новая TG-кампания</h3>
+                <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Название кампании *</label>
+                    <input class="form-input" id="tg-name" placeholder="Промо-рассылка март">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Канал-источник подписчиков</label>
+                    <p class="form-hint">Укажите @username или числовой ID канала. Подписчиков можно загрузить кнопкой на странице кампании.</p>
+                    <input class="form-input" id="tg-channel" placeholder="@my_channel или -1001234567890">
+                    <div style="margin-top:8px;padding:8px 12px;background:rgba(245,158,11,0.1);border-radius:6px;font-size:12px;line-height:1.5;color:#92600a">
+                        <strong>⚠️ Требования к каналу:</strong><br>
+                        • Юзербот-аккаунт должен быть <strong>администратором</strong> канала<br>
+                        • Без прав админа невозможно получить список подписчиков<br>
+                        • Для приватных каналов используйте числовой ID (начинается с -100)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Текст сообщения *</label>
+                    <p class="form-hint">Поддерживается Markdown-форматирование Telegram. Лимит подписи к фото: 1024 символа.</p>
+                    <textarea class="form-input" id="tg-message" rows="6" placeholder="Привет! 👋\n\nМы предлагаем..." oninput="document.getElementById('tg-char-count').textContent=this.value.length"></textarea>
+                    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:12px">
+                        <span id="tg-char-count" style="color:var(--text-muted)">0</span>
+                        <span style="color:var(--text-muted)">символов (макс. 4096, подпись к фото макс. 1024)</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Задержка между сообщениями</label>
+                    <div style="margin-top:8px">
+                        <input class="form-input" type="number" id="tg-delay" value="60" min="35" max="300">
+                        <span class="suffix" style="font-size:12px;color:var(--text-muted);margin-left:6px">секунд (мин. 35, рекомендуемо 60)</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Отмена</button>
+                <button class="btn btn-primary" id="btn-save-tg-campaign">
+                    <span class="material-symbols-outlined">add</span> Создать
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    document.getElementById('btn-save-tg-campaign').addEventListener('click', async () => {
+        const name = document.getElementById('tg-name').value.trim();
+        const message_text = document.getElementById('tg-message').value.trim();
+        if (!name) return showToast('Укажите название', 'error');
+        if (!message_text) return showToast('Укажите текст сообщения', 'error');
+
+        try {
+            const result = await api.post('/api/telegram/campaigns', {
+                name,
+                message_text,
+                source_channel: document.getElementById('tg-channel').value.trim(),
+                delay_seconds: parseInt(document.getElementById('tg-delay').value) || 35,
+            });
+            overlay.remove();
+            showToast(result.message, 'success');
+            navigateTo(`/telegram/${result.id}`);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+}
+
+async function renderTgCampaignDetail(container, campaignId) {
+    const c = await api.get(`/api/telegram/campaigns/${campaignId}`);
+
+    const progress = c.total_recipients > 0 ? Math.round((c.sent_count + c.failed_count) / c.total_recipients * 100) : 0;
+
+    container.innerHTML = `
+        <div style="margin-bottom:16px">
+            <a href="#/telegram" style="color:var(--primary);text-decoration:none;font-size:13px;display:inline-flex;align-items:center;gap:4px">
+                <span class="material-symbols-outlined" style="font-size:18px">arrow_back</span> Назад к списку
+            </a>
+        </div>
+
+        <div class="card mb-24" style="padding:24px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+                <div>
+                    <h2 style="margin:0 0 4px;font-size:20px">${c.name}</h2>
+                    <div style="display:flex;gap:12px;align-items:center">
+                        ${tgStatusBadge(c.status)}
+                        ${c.source_channel ? `<span style="font-size:13px;color:var(--text-muted)">Канал: ${c.source_channel}</span>` : ''}
+                        <span style="font-size:13px;color:var(--text-muted)">Задержка: ${c.delay_seconds}с</span>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px">
+                    ${c.source_channel && (c.status === 'draft') ? `<button class="btn btn-secondary" id="btn-tg-fetch">
+                        <span class="material-symbols-outlined">download</span> Загрузить подписчиков
+                    </button>` : ''}
+                    ${!c.source_channel && (c.status === 'draft') ? `<span style="font-size:12px;color:var(--text-muted);padding:8px">Канал не указан — добавьте получателей вручную</span>` : ''}
+                    ${c.status === 'draft' || c.status === 'paused' ? `<button class="btn btn-primary" id="btn-tg-send">
+                        <span class="material-symbols-outlined">play_arrow</span> Запустить
+                    </button>` : ''}
+                    ${c.status === 'sending' ? `<button class="btn btn-secondary" id="btn-tg-pause">
+                        <span class="material-symbols-outlined">pause</span> Пауза
+                    </button>` : ''}
+                    ${c.status === 'sending' || c.status === 'paused' ? `<button class="btn btn-danger" id="btn-tg-cancel">
+                        <span class="material-symbols-outlined">cancel</span> Отменить
+                    </button>` : ''}
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+                <div style="padding:12px;background:var(--bg-input);border-radius:8px;text-align:center">
+                    <div style="font-size:24px;font-weight:700">${c.total_recipients}</div>
+                    <div style="font-size:12px;color:var(--text-muted)">Всего</div>
+                </div>
+                <div style="padding:12px;background:var(--bg-input);border-radius:8px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:var(--success)">${c.sent_count}</div>
+                    <div style="font-size:12px;color:var(--text-muted)">Отправлено</div>
+                </div>
+                <div style="padding:12px;background:var(--bg-input);border-radius:8px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:${c.failed_count > 0 ? 'var(--danger)' : 'var(--text-muted)'}">${c.failed_count}</div>
+                    <div style="font-size:12px;color:var(--text-muted)">Ошибки</div>
+                </div>
+                <div style="padding:12px;background:var(--bg-input);border-radius:8px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:var(--primary)">${progress}%</div>
+                    <div style="font-size:12px;color:var(--text-muted)">Прогресс</div>
+                </div>
+            </div>
+
+            <!-- Progress bar -->
+            <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;margin-bottom:20px">
+                <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,var(--primary),#8b5cf6);border-radius:4px;transition:width 0.5s"></div>
+            </div>
+
+            <!-- Message preview -->
+            <div style="margin-bottom:16px">
+                <h4 style="margin:0 0 8px;font-size:14px;color:var(--text-secondary)">Текст сообщения: <span style="font-weight:400;font-size:12px;color:var(--text-muted)">${(c.message_text || '').length} символов</span></h4>
+                <div style="padding:16px;background:var(--bg-input);border-radius:8px;white-space:pre-wrap;font-size:14px;line-height:1.5;max-height:200px;overflow-y:auto">${c.message_text || '<span style="color:var(--text-muted)">Не задан</span>'}</div>
+            </div>
+
+            <!-- Image -->
+            <div style="margin-bottom:16px">
+                <h4 style="margin:0 0 8px;font-size:14px;color:var(--text-secondary)">Изображение:</h4>
+                ${c.image_path ? `
+                    <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg-input);border-radius:8px">
+                        <span class="material-symbols-outlined" style="color:var(--success);font-size:20px">image</span>
+                        <span style="font-size:13px;flex:1">Изображение прикреплено ✔️</span>
+                        ${c.status === 'draft' ? '<button class="btn btn-sm btn-danger" id="btn-tg-del-image"><span class="material-symbols-outlined" style="font-size:14px">delete</span> Удалить</button>' : ''}
+                    </div>
+                ` : `
+                    <div style="padding:12px;background:var(--bg-input);border-radius:8px">
+                        ${c.status === 'draft' ? `
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--primary);font-size:13px">
+                                <span class="material-symbols-outlined">upload</span>
+                                Загрузить изображение (JPG, PNG, GIF, макс. 5 МБ)
+                                <input type="file" id="tg-image-input" accept=".jpg,.jpeg,.png,.gif,.webp" style="display:none">
+                            </label>
+                        ` : '<span style="font-size:13px;color:var(--text-muted)">Нет изображения</span>'}
+                    </div>
+                `}
+            </div>
+        </div>
+
+        <!-- Recipients table -->
+        <div class="card">
+            <div class="card-header">
+                <h3>Получатели (${c.recipients.length})</h3>
+                <span id="tg-selected-count" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width:36px;text-align:center"><input type="checkbox" id="tg-select-all" checked title="Выбрать все / Снять все"></th>
+                        <th>TG User ID</th>
+                        <th>Username</th>
+                        <th>Имя</th>
+                        <th>Статус</th>
+                        <th>Ошибка</th>
+                        <th>Отправлено</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${c.recipients.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Нет получателей. Загрузите подписчиков из канала.</td></tr>' : ''}
+                    ${c.recipients.map(r => {
+                        const statusCls = r.status === 'sent' ? 'fully_notified' : r.status === 'failed' || r.status === 'blocked' ? 'failed' : 'pending';
+                        const statusLabel = {pending: 'Ожидание', sent: 'Отправлено', failed: 'Ошибка', blocked: 'Заблокирован', skipped: 'Пропущен'};
+                        const canSelect = r.status === 'pending';
+                        return `
+                        <tr>
+                            <td style="text-align:center">${canSelect ? `<input type="checkbox" class="tg-rcpt-cb" data-id="${r.id}" checked>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+                            <td style="font-family:monospace;font-size:13px">${r.tg_user_id}</td>
+                            <td>${r.username ? `<a href="https://t.me/${r.username}" target="_blank" style="color:var(--primary);text-decoration:none">@${r.username}</a>` : '—'}</td>
+                            <td>${r.first_name || '—'}</td>
+                            <td><span class="badge ${statusCls}">${statusLabel[r.status] || r.status}</span></td>
+                            <td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${r.error_message}">${r.error_message || '—'}</td>
+                            <td style="color:var(--text-muted);font-size:12px">${r.sent_at ? timeAgo(r.sent_at) : '—'}</td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    // Bind buttons
+    document.getElementById('btn-tg-fetch')?.addEventListener('click', async () => {
+        showToast('Загрузка подписчиков...', 'info');
+        try {
+            const r = await api.post(`/api/telegram/campaigns/${campaignId}/fetch-members`, {});
+            showToast(r.message, 'success');
+            await renderTgCampaignDetail(container, campaignId);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+
+    // Master checkbox: select/deselect all
+    const selectAllCb = document.getElementById('tg-select-all');
+    const updateSelectedCount = () => {
+        const all = document.querySelectorAll('.tg-rcpt-cb');
+        const checked = document.querySelectorAll('.tg-rcpt-cb:checked');
+        const countEl = document.getElementById('tg-selected-count');
+        if (countEl && all.length > 0) countEl.textContent = `(выбрано ${checked.length} из ${all.length})`;
+        if (selectAllCb) selectAllCb.checked = checked.length === all.length;
+    };
+    selectAllCb?.addEventListener('change', (e) => {
+        document.querySelectorAll('.tg-rcpt-cb').forEach(cb => cb.checked = e.target.checked);
+        updateSelectedCount();
+    });
+    document.querySelectorAll('.tg-rcpt-cb').forEach(cb => cb.addEventListener('change', updateSelectedCount));
+    updateSelectedCount();
+
+    document.getElementById('btn-tg-send')?.addEventListener('click', async () => {
+        // Collect unchecked recipient IDs
+        const unchecked = [...document.querySelectorAll('.tg-rcpt-cb:not(:checked)')].map(cb => parseInt(cb.dataset.id));
+        const checked = document.querySelectorAll('.tg-rcpt-cb:checked').length;
+        if (checked === 0) { showToast('Выберите хотя бы одного получателя', 'error'); return; }
+        if (!confirm(`Запустить TG-рассылку для ${checked} получателей?`)) return;
+        try {
+            const r = await api.post(`/api/telegram/campaigns/${campaignId}/send`, { exclude_recipient_ids: unchecked });
+            showToast(r.message, 'success');
+            await renderTgCampaignDetail(container, campaignId);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+
+    document.getElementById('btn-tg-pause')?.addEventListener('click', async () => {
+        try {
+            const r = await api.post(`/api/telegram/campaigns/${campaignId}/pause`, {});
+            showToast(r.message, 'success');
+            await renderTgCampaignDetail(container, campaignId);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+
+    document.getElementById('btn-tg-cancel')?.addEventListener('click', async () => {
+        if (!confirm('Отменить TG-рассылку?')) return;
+        try {
+            const r = await api.post(`/api/telegram/campaigns/${campaignId}/cancel`, {});
+            showToast(r.message, 'success');
+            await renderTgCampaignDetail(container, campaignId);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+
+    // Image upload
+    document.getElementById('tg-image-input')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) return showToast('Файл слишком большой (макс. 5 МБ)', 'error');
+        showToast('Загрузка изображения...', 'info');
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const resp = await fetch(`/api/telegram/campaigns/${campaignId}/upload-image`, {
+                method: 'POST',
+                body: formData,
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || 'Upload failed');
+            }
+            const r = await resp.json();
+            showToast(r.message, 'success');
+            await renderTgCampaignDetail(container, campaignId);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+
+    // Image delete
+    document.getElementById('btn-tg-del-image')?.addEventListener('click', async () => {
+        try {
+            const resp = await fetch(`/api/telegram/campaigns/${campaignId}/image`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error('Delete failed');
+            const r = await resp.json();
+            showToast(r.message, 'success');
+            await renderTgCampaignDetail(container, campaignId);
+        } catch (e) {
+            showToast('Ошибка: ' + e.message, 'error');
+        }
+    });
+
+    // Auto-refresh while sending
+    if (c.status === 'sending') {
+        setTimeout(async () => {
+            const route = getRoute();
+            if (route === `/telegram/${campaignId}`) {
+                try { await renderTgCampaignDetail(container, campaignId); } catch {}
+            }
+        }, 5000);
+    }
+}
+
+// Global actions for campaign list
+window.tgSendCampaign = async function(id) {
+    if (!confirm('Запустить TG-рассылку?')) return;
+    try {
+        const r = await api.post(`/api/telegram/campaigns/${id}/send`, {});
+        showToast(r.message, 'success');
+        handleRoute();
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+};
+
+window.tgPauseCampaign = async function(id) {
+    try {
+        const r = await api.post(`/api/telegram/campaigns/${id}/pause`, {});
+        showToast(r.message, 'success');
+        handleRoute();
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+};
+
+window.tgDeleteCampaign = async function(id) {
+    if (!confirm('Удалить TG-кампанию?')) return;
+    try {
+        const r = await api.del(`/api/telegram/campaigns/${id}`);
         showToast(r.message, 'success');
         handleRoute();
     } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }

@@ -299,3 +299,52 @@ class YandexDirectCampaign(Base):
     regions = Column(JSON, default=list)            # регионы таргетинга
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════
+#  Telegram Userbot Mailing
+# ═══════════════════════════════════════════════════
+
+class TgCampaignStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SENDING = "sending"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class TgCampaign(Base):
+    __tablename__ = "tg_campaigns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(500), nullable=False)
+    message_text = Column(Text, default="")
+    source_channel = Column(String(300), default="")       # @channel or numeric ID
+    status = Column(String(50), default=TgCampaignStatus.DRAFT.value)
+    delay_seconds = Column(Integer, default=35)
+    image_path = Column(String(500), default="")        # path to attached image
+    total_recipients = Column(Integer, default=0)
+    sent_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    recipients = relationship("TgCampaignRecipient", back_populates="campaign", cascade="all, delete-orphan")
+
+
+class TgCampaignRecipient(Base):
+    __tablename__ = "tg_campaign_recipients"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey("tg_campaigns.id"), nullable=False)
+    tg_user_id = Column(Integer, nullable=False)            # Telegram user ID
+    access_hash = Column(String(100), default="")            # For InputPeerUser resolution
+    username = Column(String(300), default="")
+    first_name = Column(String(300), default="")
+    status = Column(String(50), default="pending")          # pending/sent/failed/blocked
+    error_message = Column(Text, default="")
+    sent_at = Column(DateTime, nullable=True)
+    sent_by_account = Column(String(100), default="")       # sender account ID
+
+    campaign = relationship("TgCampaign", back_populates="recipients")

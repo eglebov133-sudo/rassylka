@@ -47,6 +47,40 @@ distributor_state = {
 }
 
 
+async def backfill_timeout_at():
+    """Ensure all 'waiting' batches have a timeout_at value.
+    If timeout_at is NULL (e.g. column was added after batch creation),
+    backfill it using sent_at + escalation_hours."""
+    try:
+        async with async_session() as session:
+            # Get escalation_hours from rules
+            r = await session.execute(select(RoutingRule).where(RoutingRule.id == 1))
+            rules = r.scalar_one_or_none()
+            esc_hours = (getattr(rules, 'escalation_hours', None) or 24) if rules else 24
+
+            # Find batches with NULL timeout_at
+            result = await session.execute(
+                select(DistributionBatch).where(
+                    and_(
+                        DistributionBatch.timeout_at.is_(None),
+                        DistributionBatch.status.in_([BatchStatus.WAITING.value, BatchStatus.SENT.value]),
+                    )
+                )
+            )
+            batches = result.scalars().all()
+            if batches:
+                for batch in batches:
+                    base_time = batch.sent_at or batch.created_at or datetime.utcnow()
+                    batch.timeout_at = base_time + timedelta(hours=esc_hours)
+                    logger.info(f"Backfilled timeout_at for batch {batch.id}: {batch.timeout_at}")
+                await session.commit()
+                logger.info(f"Backfilled timeout_at for {len(batches)} batches (escalation={esc_hours}h)")
+            else:
+                logger.info("All batches have timeout_at set — no backfill needed")
+    except Exception as e:
+        logger.error(f"Error backfilling timeout_at: {e}")
+
+
 def build_email_html(bid: Bid, tracking_url: str = "", unsubscribe_url: str = "", open_tracking_url: str = "") -> str:
     """Build HTML email body for a bid notification — Umit brand style."""
     # Build optional fields
@@ -402,10 +436,11 @@ async def send_email(to_email: str, subject: str, html_body: str) -> tuple[bool,
 
 
 async def validate_email_mx(email: str) -> tuple[bool, str]:
-    """Validate email by checking MX records of the domain.
+    """Validate email by checking MX records of the domain and pinging via SMTP.
     Returns (is_valid, reason)."""
     import dns.resolver
     import re
+    import aiosmtplib
 
     # Basic syntax check
     if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
@@ -421,9 +456,33 @@ async def validate_email_mx(email: str) -> tuple[bool, str]:
 
     try:
         mx_records = dns.resolver.resolve(domain, 'MX')
-        if len(mx_records) > 0:
-            return True, "ok"
-        return False, "no_mx_records"
+        # Sort by preference
+        mx_list = sorted([(r.preference, str(r.exchange).rstrip('.')) for r in mx_records])
+        if not mx_list:
+            return False, "no_mx_records"
+            
+        # Optional: SMTP Ping (RCPT TO check)
+        # We try the primary MX server with a very short timeout.
+        mx_host = mx_list[0][1]
+        try:
+            # We connect to port 25 without TLS initially, as it's standard for MX-to-MX delivery
+            smtp = aiosmtplib.SMTP(hostname=mx_host, port=25, timeout=4)
+            await smtp.connect()
+            await smtp.ehlo(hostname="umit-info.ru")
+            await smtp.mail("bounces@umit-info.ru")
+            code, message = await smtp.rcpt(email)
+            await smtp.quit()
+            
+            # If server explicitly rejects with a 5xx code (usually 550 User unknown),
+            # the user mail address is invalid.
+            if code >= 500 and code <= 559:
+                return False, f"smtp_user_unknown: {message.strip()}"
+        except Exception as e:
+            # If the server drops connection, timeouts, or requires STARTTLS etc, 
+            # we just let it pass, to avoid false negatives.
+            pass
+
+        return True, "ok"
     except dns.resolver.NXDOMAIN:
         return False, "domain_not_found"
     except dns.resolver.NoAnswer:
@@ -601,26 +660,43 @@ async def check_timeouts(session: AsyncSession, rules: RoutingRule):
     """Check for batches that have timed out and escalate."""
     now = datetime.utcnow()
 
+    # Debug: log all waiting batches
+    debug_result = await session.execute(
+        select(DistributionBatch).where(
+            DistributionBatch.status == BatchStatus.WAITING.value
+        )
+    )
+    waiting_batches = debug_result.scalars().all()
+    if waiting_batches:
+        for wb in waiting_batches:
+            logger.info(f"Waiting batch {wb.id} (bid={wb.bid_id}, batch#{wb.batch_number}): "
+                       f"timeout_at={wb.timeout_at}, now={now}, "
+                       f"timed_out={wb.timeout_at <= now if wb.timeout_at else 'NULL timeout_at'}")
+    
     result = await session.execute(
         select(DistributionBatch)
         .where(
             and_(
                 DistributionBatch.status == BatchStatus.WAITING.value,
+                DistributionBatch.timeout_at.isnot(None),
                 DistributionBatch.timeout_at <= now,
             )
         )
     )
     timed_out = result.scalars().all()
 
+    if timed_out:
+        logger.info(f"Found {len(timed_out)} timed-out batches to escalate")
+
     for batch in timed_out:
         batch.status = BatchStatus.TIMEOUT.value
 
-        # Check if any supplier responded
+        # Check if any supplier responded (clicked)
         log_result = await session.execute(
             select(DistributionLog).where(
                 and_(
                     DistributionLog.batch_id == batch.id,
-                    DistributionLog.email_status == EmailStatus.RESPONDED.value,
+                    DistributionLog.clicked_at.isnot(None),
                 )
             )
         )
@@ -631,6 +707,7 @@ async def check_timeouts(session: AsyncSession, rules: RoutingRule):
             batch.status = BatchStatus.ESCALATED.value
             bid = await session.get(Bid, batch.bid_id)
             if bid and bid.status == BidStatus.DISTRIBUTING.value:
+                logger.info(f"Escalating bid {bid.source_id}: batch {batch.batch_number} → next batch")
                 await process_single_bid(session, bid, rules)
 
         logger.info(f"Batch {batch.id} timed out. Responded: {len(responded)}. Escalated: {not responded}")
@@ -765,6 +842,9 @@ async def distributor_loop():
     """Background loop that runs distribution cycles."""
     logger.info("Distributor loop started")
     distributor_state["running"] = True
+
+    # Backfill timeout_at for batches that were created before the column existed
+    await backfill_timeout_at()
 
     cycle_count = 0
     while True:

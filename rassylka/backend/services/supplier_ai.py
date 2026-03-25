@@ -43,29 +43,41 @@ BLACKLIST_DOMAINS = {
 
 
 SYSTEM_PROMPT = """Ты помощник по поиску поставщиков запасных частей и оборудования в России и СНГ.
-Пользователь даёт тебе описание запчасти или оборудования. 
-Ты должен найти реальных поставщиков, которые продают подобные товары.
+Пользователь даёт тебе описание запчасти или оборудования.
+Ты должен найти РЕАЛЬНЫХ поставщиков, которые продают подобные товары.
+
+═══════ КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА ═══════
+
+1. ЗАПРЕЩЕНО ВЫДУМЫВАТЬ email-адреса. Если ты НЕ НАШЁЛ email на сайте компании — 
+   поставь пустую строку "" в поле email. ЛУЧШЕ ПУСТОЙ email, ЧЕМ ВЫДУМАННЫЙ.
+2. Указывай ТОЛЬКО те email-адреса, которые ты РЕАЛЬНО ВИДИШЬ на сайте компании 
+   (в разделе "Контакты", в подвале сайта, на странице "О нас" и т.п.).
+3. НЕ УГАДЫВАЙ email по шаблону (info@домен, sales@домен и т.п.) — 
+   если на сайте нет email, оставь поле пустым.
+4. Обязательно указывай РЕАЛЬНЫЙ website компании. Без website компания бесполезна.
+5. НИКОГДА не включай маркетплейсы (Ozon, Wildberries, Яндекс Маркет, AliExpress, 
+   Avito, СберМегаМаркет, Emex, Exist, Autodoc, Drom и т.п.).
+6. Если не нашёл поставщиков — верни пустой массив [].
+7. Не добавляй текст до или после JSON.
+
+═══════ ФОРМАТ ОТВЕТА ═══════
 
 Верни результат СТРОГО в JSON формате (массив объектов):
 [
   {
-    "company_name": "Название компании",
-    "email": "email@example.com",
-    "phone": "+7...",
-    "contact_person": "Имя контакта",
-    "website": "https://...",
+    "company_name": "Точное название компании как на сайте",
+    "email": "email найденный НА САЙТЕ компании, или пустая строка если не найден",
+    "phone": "+7... найденный на сайте",
+    "contact_person": "Имя контакта если указано на сайте",
+    "website": "https://точный-url-сайта.ru",
     "categories": ["категория1", "категория2"],
     "regions": ["Москва", "Московская область"],
-    "description": "Краткое описание деятельности компании"
+    "description": "Краткое описание: чем занимается, что продаёт"
   }
 ]
 
-Важно:
-- Указывай только реальные компании с реальными контактами
-- Email обязателен
-- Если не нашёл поставщиков — верни пустой массив []
-- Не добавляй текст до или после JSON
-- НИКОГДА не включай маркетплейсы (Ozon, Wildberries, Яндекс Маркет, AliExpress, Avito, СберМегаМаркет и т.п.) — только прямые поставщики и производители
+ПОВТОРЯЮ: если email компании НЕ НАЙДЕН на их сайте — ставь пустую строку \"\". 
+ЛУЧШЕ ВЕРНУТЬ МЕНЬШЕ РЕЗУЛЬТАТОВ С РЕАЛЬНЫМИ EMAIL, ЧЕМ МНОГО С ВЫДУМАННЫМИ.
 """
 
 
@@ -213,7 +225,7 @@ async def _call_ai(prompt: str) -> List[Dict]:
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": prompt},
                     ],
-                    "temperature": 0.3,
+                    "temperature": 0.1,
                     "max_tokens": 4000,
                 },
             )
@@ -238,24 +250,49 @@ async def _call_ai(prompt: str) -> List[Dict]:
             if not isinstance(suppliers, list):
                 suppliers = [suppliers]
 
-            # Validate and filter out blacklisted domains
+            # Validate and filter out blacklisted domains + suspected fabricated emails
             valid = []
             for s in suppliers:
-                if not (s.get("company_name") and s.get("email")):
+                company = s.get("company_name", "").strip()
+                email = (s.get("email") or "").strip().lower()
+                website = (s.get("website") or "").strip().lower()
+
+                # Must have company name
+                if not company:
                     continue
+
+                # Skip if no email AND no website (useless entry)
+                if not email and not website:
+                    logger.info(f"FILTERED: no email and no website: {company}")
+                    continue
+
                 # Check email domain against blacklist
-                email_domain = s["email"].split("@")[-1].lower().strip()
-                if email_domain in BLACKLIST_DOMAINS:
-                    logger.info(f"Filtered out marketplace: {s.get('company_name')} ({s['email']})")
-                    continue
+                if email:
+                    email_domain = email.split("@")[-1]
+                    if email_domain in BLACKLIST_DOMAINS:
+                        logger.info(f"FILTERED: marketplace email: {company} ({email})")
+                        continue
+
+                    # Detect suspected fabricated generic emails
+                    local_part = email.split("@")[0]
+                    generic_prefixes = {
+                        "info", "sales", "sale", "order", "orders", "zakaz",
+                        "manager", "office", "mail", "contact", "contacts",
+                        "support", "help", "admin", "hello", "privet",
+                    }
+                    if local_part in generic_prefixes and not website:
+                        # Generic email WITHOUT a website = very likely fabricated
+                        logger.warning(f"FILTERED: suspected fabricated email (generic + no website): {company} ({email})")
+                        continue
+
                 # Check website domain against blacklist
-                website = (s.get("website") or "").lower()
-                if any(bd in website for bd in BLACKLIST_DOMAINS):
-                    logger.info(f"Filtered out marketplace by website: {s.get('company_name')} ({website})")
+                if website and any(bd in website for bd in BLACKLIST_DOMAINS):
+                    logger.info(f"FILTERED: marketplace website: {company} ({website})")
                     continue
+
                 valid.append({
-                    "company_name": s.get("company_name", ""),
-                    "email": s.get("email", ""),
+                    "company_name": company,
+                    "email": email,  # can be empty string — that's OK now
                     "phone": s.get("phone", ""),
                     "contact_person": s.get("contact_person", ""),
                     "website": s.get("website", ""),

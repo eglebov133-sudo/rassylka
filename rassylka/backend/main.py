@@ -22,6 +22,7 @@ from backend.services.mail_engine import distributor_loop
 from backend.services.weekly_report import report_scheduler
 from backend.services.monitor_engine import monitor_loop
 from backend.services.auto_supplier_search import auto_search_loop
+from backend.services.bounce_handler import bounce_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,13 +41,21 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # Connect Telegram client
+    try:
+        from backend.services.telegram_sender import connect_tg
+        await connect_tg()
+    except Exception as e:
+        logger.warning(f"Telegram client startup failed (non-critical): {e}")
+
     # Start background tasks
     parser_task = asyncio.create_task(parser_loop())
     distributor_task = asyncio.create_task(distributor_loop())
     report_task = asyncio.create_task(report_scheduler())
     monitor_task = asyncio.create_task(monitor_loop())
     auto_search_task = asyncio.create_task(auto_search_loop())
-    logger.info("Background tasks started (5 tasks: parser, distributor, report, monitor, auto_search)")
+    bounce_task = asyncio.create_task(bounce_loop())
+    logger.info("Background tasks started (6 tasks: parser, distributor, report, monitor, auto_search, bounce_handler)")
 
     yield
 
@@ -56,7 +65,15 @@ async def lifespan(app: FastAPI):
     report_task.cancel()
     monitor_task.cancel()
     auto_search_task.cancel()
+    bounce_task.cancel()
     logger.info("Background tasks stopped")
+
+    # Disconnect Telegram
+    try:
+        from backend.services.telegram_sender import disconnect_tg
+        await disconnect_tg()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -324,6 +341,8 @@ from backend.routers import monitor
 app.include_router(monitor.router)
 from backend.routers import promotion
 app.include_router(promotion.router)
+from backend.routers import telegram
+app.include_router(telegram.router)
 
 # Serve email assets (images from atribut/ folder)
 ATRIBUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "atribut")

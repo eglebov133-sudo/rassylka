@@ -30,8 +30,37 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 
+import re
+
 # Active campaign tasks
 _active_tasks: dict[int, asyncio.Task] = {}
+
+
+def _rewrite_asset_urls(html: str) -> str:
+    """Rewrite relative /campaign-assets/ and /email-assets/ paths to absolute URLs.
+
+    Email clients cannot resolve relative paths, so we prepend APP_BASE_URL.
+    Handles src="...", url(...), and url('...') patterns.
+    """
+    base = APP_BASE_URL.rstrip("/")
+
+    # src="/campaign-assets/..." or src="/email-assets/..."
+    html = re.sub(
+        r'''(src\s*=\s*["'])(/(?:campaign-assets|email-assets)/[^"']+)(["'])''',
+        lambda m: f'{m.group(1)}{base}{m.group(2)}{m.group(3)}',
+        html,
+        flags=re.IGNORECASE,
+    )
+
+    # url(/campaign-assets/...) or url('/campaign-assets/...') or url("/campaign-assets/...")
+    html = re.sub(
+        r"""(url\s*\(\s*['"]?)(/(?:campaign-assets|email-assets)/[^)'"]+)(['"]?\s*\))""",
+        lambda m: f'{m.group(1)}{base}{m.group(2)}{m.group(3)}',
+        html,
+        flags=re.IGNORECASE,
+    )
+
+    return html
 
 
 def inject_tracking(html: str, track_token: str) -> str:
@@ -413,6 +442,9 @@ async def run_campaign(campaign_id: int):
             is_raw_html = body.strip().lower().startswith(("<!doctype", "<html"))
             if is_raw_html:
                 # Raw HTML template (e.g. Prom28) — inject tracking pixel only
+                # Rewrite relative /campaign-assets/ paths to absolute URLs
+                # so email clients can load images
+                body = _rewrite_asset_urls(body)
                 html = inject_tracking(body, recipient.track_token)
             else:
                 html = build_campaign_html(
