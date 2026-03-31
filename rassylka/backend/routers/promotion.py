@@ -280,26 +280,47 @@ async def sync_campaigns():
             if not yc:
                 continue
 
-            campaign.yd_status = yc.get("status", "")
+            # Update YD status from Status field (MODERATION, ACCEPTED, etc.)
+            campaign.yd_status = yc.get("status", campaign.yd_status or "")
             campaign.impressions = yc.get("impressions", 0)
             campaign.clicks = yc.get("clicks", 0)
 
+            # Map State to our internal status
             state = yc.get("state", "")
+            yd_status = yc.get("status", "")
+
             if state == "ON":
                 campaign.status = "active"
             elif state == "SUSPENDED":
                 campaign.status = "paused"
             elif state == "OFF":
-                campaign.status = "stopped"
+                # OFF can mean draft, moderation, or stopped
+                if yd_status == "DRAFT":
+                    campaign.status = "draft"
+                elif yd_status in ("MODERATION", "PENDING"):
+                    campaign.status = "moderation"
+                elif yd_status == "ACCEPTED":
+                    campaign.status = "ready"  # accepted but OFF (e.g. no funds)
+                elif yd_status == "REJECTED":
+                    campaign.status = "rejected"
+                else:
+                    campaign.status = "stopped"
             elif state == "ENDED":
                 campaign.status = "archived"
+            elif state == "CONVERTED":
+                campaign.status = "archived"
             else:
-                campaign.status = "pending"
+                campaign.status = "draft"
 
             if campaign.impressions > 0:
                 campaign.ctr = round((campaign.clicks / campaign.impressions) * 100, 2)
 
-            campaign.daily_budget = yc.get("daily_budget", campaign.daily_budget)
+            # Update budget only if API returns a valid value
+            api_budget = yc.get("daily_budget", 0)
+            if api_budget > 0:
+                campaign.daily_budget = api_budget
+
+            campaign.updated_at = datetime.utcnow()
             synced += 1
 
         config.last_sync_at = datetime.utcnow()

@@ -1849,8 +1849,11 @@ function showCampaignModal(container) {
 
     function loadVisualEditor(html) {
         const doc = editorIframe.contentDocument || editorIframe.contentWindow.document;
+        // Inject <base href> so relative paths (/campaign-assets/...) resolve correctly
+        const baseTag = `<base href="${window.location.origin}/">`;
+        const htmlWithBase = html.replace(/(<head[^>]*>)/i, `$1${baseTag}`);
         doc.open();
-        doc.write(html);
+        doc.write(htmlWithBase.includes('<head') ? htmlWithBase : baseTag + html);
         doc.close();
         // Make content editable
         setTimeout(() => {
@@ -2905,156 +2908,523 @@ async function renderPromotion(container) {
         return;
     }
 
-    // State 2: Connected but no campaigns — show enable button
-    // State 3: Has campaigns — show dashboard
-    const statusColors = { active: 'var(--success)', paused: 'var(--warning)', pending: 'var(--primary)', stopped: 'var(--danger)', draft: 'var(--text-muted)', archived: 'var(--text-muted)' };
-    const statusLabels = { active: 'Активна', paused: 'На паузе', pending: 'Модерация', stopped: 'Остановлена', draft: 'Черновик', archived: 'Архив' };
+    // State 2+3: Connected — tabbed interface
+    let activePromTab = window._promTab || 'campaigns';
 
     container.innerHTML = `
-        <div class="action-bar" style="margin-bottom:24px">
+        <div class="action-bar" style="margin-bottom:0">
             <div style="display:flex;align-items:center;gap:12px">
                 <div style="width:10px;height:10px;border-radius:50%;background:${connected ? 'var(--success)' : 'var(--danger)'}"></div>
                 <span style="font-size:14px;font-weight:600;color:${connected ? 'var(--success)' : 'var(--danger)'}">
-                    ${connected ? 'Подключён к Яндекс.Директ' : 'Нет подключения к Яндекс.Директ'}
+                    ${connected ? 'Подключён к Яндекс.Директ' : 'Нет подключения'}
                 </span>
                 ${config.client_login ? `<span style="font-size:12px;color:var(--text-muted)">(${config.client_login})</span>` : ''}
             </div>
-            <div style="display:flex;gap:8px">
-                <button class="btn btn-secondary" id="btn-yd-sync">
-                    <span class="material-symbols-outlined">sync</span> Синхронизировать
-                </button>
-                <button class="btn btn-primary" id="btn-yd-enable">
-                    <span class="material-symbols-outlined">add_circle</span> Новая кампания
-                </button>
-            </div>
-        </div>
-
-        <!-- KPI Cards -->
-        <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px">
-            <div class="kpi-card">
-                <div class="kpi-header"><div class="kpi-icon primary"><span class="material-symbols-outlined">visibility</span></div></div>
-                <div class="kpi-label">Показы</div>
-                <div class="kpi-value">${(t.impressions || 0).toLocaleString()}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-header"><div class="kpi-icon success"><span class="material-symbols-outlined">ads_click</span></div></div>
-                <div class="kpi-label">Клики</div>
-                <div class="kpi-value">${(t.clicks || 0).toLocaleString()}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-header"><div class="kpi-icon info"><span class="material-symbols-outlined">percent</span></div></div>
-                <div class="kpi-label">CTR</div>
-                <div class="kpi-value">${t.ctr || 0}%</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-header"><div class="kpi-icon warning"><span class="material-symbols-outlined">payments</span></div></div>
-                <div class="kpi-label">Расход</div>
-                <div class="kpi-value">${(t.cost || 0).toLocaleString()} ₽</div>
-            </div>
-        </div>
-
-        ${!hasCampaigns ? `
-        <!-- No campaigns — big enable button -->
-        <div class="card" style="text-align:center;padding:60px 40px">
-            <div style="width:80px;height:80px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 24px">
-                <span class="material-symbols-outlined" style="font-size:40px;color:#fff">rocket_launch</span>
-            </div>
-            <h3 style="font-size:22px;font-weight:700;margin:0 0 8px">Запустите первую кампанию</h3>
-            <p style="color:var(--text-secondary);margin:0 0 24px;max-width:400px;margin-left:auto;margin-right:auto">
-                Нажмите кнопку ниже, и мы автоматически создадим рекламную кампанию<br>в Яндекс.Директ с оптимальными настройками.
-            </p>
-            <button class="btn btn-primary" id="btn-yd-enable-big" style="font-size:16px;padding:14px 40px">
-                <span class="material-symbols-outlined">trending_up</span>
-                Включить продвижение
+            <button class="btn btn-sm" style="color:var(--text-muted);font-size:12px" id="btn-yd-disconnect">
+                <span class="material-symbols-outlined" style="font-size:14px">link_off</span> Отключить
             </button>
-        </div>` : `
-        <!-- Campaigns table -->
-        <div class="card">
-            <div class="card-header">
-                <h3>Рекламные кампании</h3>
-                <span style="font-size:13px;color:var(--text-muted)">${t.active || 0} активных из ${t.total || 0}</span>
+        </div>
+
+        <!-- Tabs -->
+        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin:16px 0 24px">
+            <button class="prom-tab ${activePromTab==='campaigns'?'active':''}" data-tab="campaigns">
+                <span class="material-symbols-outlined" style="font-size:18px">campaign</span> Кампании
+            </button>
+            <button class="prom-tab ${activePromTab==='catalog'?'active':''}" data-tab="catalog">
+                <span class="material-symbols-outlined" style="font-size:18px">directions_car</span> Справочник
+            </button>
+            <button class="prom-tab ${activePromTab==='keywords'?'active':''}" data-tab="keywords">
+                <span class="material-symbols-outlined" style="font-size:18px">key</span> Ключевики
+            </button>
+        </div>
+
+        <div id="prom-tab-content"></div>
+
+        ${config.last_sync ? `<p style="text-align:right;font-size:12px;color:var(--text-muted);margin-top:12px">Последняя синхронизация: ${new Date(config.last_sync).toLocaleString('ru-RU')}</p>` : ''}
+    `;
+
+    // Tab styles (inject once)
+    if (!document.getElementById('prom-tab-styles')) {
+        const style = document.createElement('style');
+        style.id = 'prom-tab-styles';
+        style.textContent = `
+            .prom-tab { background:none;border:none;padding:10px 20px;font-size:14px;font-weight:500;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s }
+            .prom-tab:hover { color:var(--text-primary);background:var(--bg-input);border-radius:8px 8px 0 0 }
+            .prom-tab.active { color:var(--primary);border-bottom-color:var(--primary);font-weight:600 }
+            .brand-chip { display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:500;background:var(--bg-input);border:1px solid var(--border);cursor:pointer;transition:all 0.15s }
+            .brand-chip:hover { border-color:var(--primary);color:var(--primary) }
+            .brand-chip.selected { background:var(--primary);color:#fff;border-color:var(--primary) }
+            .cluster-badge { display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const clusterColors = {
+        'тормоза':'#ef4444','подвеска':'#3b82f6','привод':'#8b5cf6','двигатель':'#f59e0b',
+        'фильтры':'#10b981','электрика':'#6366f1','кузов':'#ec4899','выхлоп':'#64748b'
+    };
+
+    // ── Tab: Campaigns ──
+    async function renderCampaignsTab(tabEl) {
+        const statusColors = { active: 'var(--success)', paused: 'var(--warning)', pending: 'var(--primary)', stopped: 'var(--danger)', draft: 'var(--text-muted)', archived: 'var(--text-muted)' };
+        const statusLabels = { active: 'Активна', paused: 'На паузе', pending: 'Модерация', stopped: 'Остановлена', draft: 'Черновик', archived: 'Архив' };
+
+        tabEl.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:12px;flex:1;margin-right:16px">
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Показы</div><div class="kpi-value" style="font-size:20px">${(t.impressions||0).toLocaleString()}</div></div>
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Клики</div><div class="kpi-value" style="font-size:20px">${(t.clicks||0).toLocaleString()}</div></div>
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">CTR</div><div class="kpi-value" style="font-size:20px">${t.ctr||0}%</div></div>
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Расход</div><div class="kpi-value" style="font-size:20px">${(t.cost||0).toLocaleString()} ₽</div></div>
+                </div>
+                <div style="display:flex;gap:8px;flex-shrink:0">
+                    <button class="btn btn-secondary" id="btn-yd-sync"><span class="material-symbols-outlined">sync</span> Синхронизировать</button>
+                    <button class="btn btn-primary" id="btn-yd-enable"><span class="material-symbols-outlined">add_circle</span> Новая</button>
+                </div>
             </div>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Кампания</th>
-                        <th>Статус</th>
-                        <th>Показы</th>
-                        <th>Клики</th>
-                        <th>CTR</th>
-                        <th>Расход</th>
-                        <th>Бюджет/день</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${campaigns.map(c => `
-                        <tr>
+
+            ${!hasCampaigns ? `
+            <div class="card" style="text-align:center;padding:48px">
+                <span class="material-symbols-outlined" style="font-size:48px;color:var(--text-muted)">campaign</span>
+                <p style="color:var(--text-secondary);margin:12px 0 0">Нет кампаний. Перейдите во вкладку «Ключевики» для пакетного создания.</p>
+            </div>` : `
+            <div class="card">
+                <table class="data-table">
+                    <thead><tr><th>Кампания</th><th>Статус</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Расход</th><th>Бюджет/день</th><th>Действия</th></tr></thead>
+                    <tbody>
+                        ${campaigns.map(c => `<tr>
                             <td style="font-weight:600">${c.name}</td>
-                            <td><span style="color:${statusColors[c.status] || 'var(--text-muted)'};font-weight:600;font-size:13px">${statusLabels[c.status] || c.status}</span></td>
+                            <td><span style="color:${statusColors[c.status]||'var(--text-muted)'};font-weight:600;font-size:13px">${statusLabels[c.status]||c.status}</span></td>
                             <td>${c.impressions.toLocaleString()}</td>
                             <td style="font-weight:600;color:var(--primary)">${c.clicks.toLocaleString()}</td>
                             <td>${c.ctr}%</td>
                             <td>${c.cost.toLocaleString()} ₽</td>
                             <td style="color:var(--text-secondary)">${c.daily_budget} ₽</td>
                             <td>
-                                ${c.status === 'active' ? `
-                                    <button class="btn btn-sm btn-secondary" onclick="ydPauseCampaign(${c.id})" title="Поставить на паузу">
-                                        <span class="material-symbols-outlined">pause</span>
-                                    </button>` : c.status === 'paused' ? `
-                                    <button class="btn btn-sm btn-primary" onclick="ydResumeCampaign(${c.id})" title="Возобновить">
-                                        <span class="material-symbols-outlined">play_arrow</span>
-                                    </button>` : `
-                                    <span style="color:var(--text-muted);font-size:12px">${c.yd_status || '—'}</span>`}
+                                ${c.status==='active'?`<button class="btn btn-sm btn-secondary" onclick="ydPauseCampaign(${c.id})"><span class="material-symbols-outlined">pause</span></button>`:
+                                  c.status==='paused'?`<button class="btn btn-sm btn-primary" onclick="ydResumeCampaign(${c.id})"><span class="material-symbols-outlined">play_arrow</span></button>`:
+                                  `<span style="color:var(--text-muted);font-size:12px">${c.yd_status||'—'}</span>`}
                             </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>`}
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`}
+        `;
 
-        ${config.last_sync ? `<p style="text-align:right;font-size:12px;color:var(--text-muted);margin-top:12px">Последняя синхронизация: ${new Date(config.last_sync).toLocaleString('ru-RU')}</p>` : ''}
+        document.getElementById('btn-yd-sync')?.addEventListener('click', async () => {
+            const btn = document.getElementById('btn-yd-sync');
+            btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Синхронизация...';
+            try { const r = await api.post('/api/promotion/sync', {}); showToast(r.message, 'success'); setTimeout(() => renderPromotion(container), 500); }
+            catch (e) { showToast('Ошибка: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined">sync</span> Синхронизировать'; }
+        });
+        document.getElementById('btn-yd-enable')?.addEventListener('click', () => showEnableCampaignModal(container));
+    }
 
-        <!-- Settings -->
-        <div style="margin-top:24px;text-align:right">
-            <button class="btn btn-sm" style="color:var(--text-muted);font-size:12px" id="btn-yd-disconnect">
-                <span class="material-symbols-outlined" style="font-size:14px">link_off</span> Отключить Яндекс.Директ
-            </button>
-        </div>
-    `;
-
-    // ── Event handlers ──
-    document.getElementById('btn-yd-sync')?.addEventListener('click', async () => {
-        const btn = document.getElementById('btn-yd-sync');
-        btn.disabled = true;
-        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Синхронизация...';
+    // ── Tab: Catalog ──
+    async function renderCatalogTab(tabEl) {
+        tabEl.innerHTML = '<div class="spinner"></div>';
         try {
-            const r = await api.post('/api/promotion/sync', {});
-            showToast(r.message, 'success');
-            setTimeout(() => renderPromotion(container), 500);
+            const [brandsData, partsData] = await Promise.all([
+                api.get('/api/promotion/brands'),
+                api.get('/api/promotion/parts'),
+            ]);
+            const brands = brandsData.brands || [];
+            const clusters = partsData.clusters || {};
+
+            tabEl.innerHTML = `
+                <div style="display:flex;gap:24px">
+                    <!-- Brands -->
+                    <div style="flex:2">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                            <h3 style="margin:0;font-size:16px">Марки и модели (${brands.length})</h3>
+                            <div style="display:flex;gap:8px">
+                                <button class="btn btn-sm btn-secondary" id="btn-seed-catalog">
+                                    <span class="material-symbols-outlined" style="font-size:16px">database</span> Seed
+                                </button>
+                                <button class="btn btn-sm btn-primary" id="btn-add-brand">
+                                    <span class="material-symbols-outlined" style="font-size:16px">add</span> Марка
+                                </button>
+                            </div>
+                        </div>
+                        ${brands.length === 0 ? `
+                        <div class="card" style="text-align:center;padding:40px">
+                            <span class="material-symbols-outlined" style="font-size:40px;color:var(--text-muted)">directions_car</span>
+                            <p style="color:var(--text-secondary);margin:12px 0">Справочник пуст. Нажмите «Seed» для загрузки 33 марок.</p>
+                        </div>` : `
+                        <div class="card" style="max-height:500px;overflow-y:auto">
+                            <table class="data-table">
+                                <thead><tr><th>Марка</th><th>RU</th><th>Моделей</th><th></th></tr></thead>
+                                <tbody>
+                                    ${brands.map(b => `<tr style="cursor:pointer" class="brand-row" data-brand-id="${b.id}">
+                                        <td style="font-weight:600">${b.name}</td>
+                                        <td style="color:var(--text-secondary);font-size:13px">${b.name_ru||'—'}</td>
+                                        <td><span class="badge pending">${b.model_count}</span></td>
+                                        <td style="width:40px"><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteBrand(${b.id})"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button></td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>`}
+
+                        <!-- Models detail panel -->
+                        <div id="brand-models-panel" style="margin-top:16px"></div>
+                    </div>
+
+                    <!-- Part categories -->
+                    <div style="flex:1">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                            <h3 style="margin:0;font-size:16px">Запчасти (${partsData.total||0})</h3>
+                            <button class="btn btn-sm btn-primary" id="btn-add-part">
+                                <span class="material-symbols-outlined" style="font-size:16px">add</span>
+                            </button>
+                        </div>
+                        <div class="card" style="max-height:500px;overflow-y:auto;padding:12px">
+                            ${Object.keys(clusters).map(cluster => `
+                                <div style="margin-bottom:12px">
+                                    <div style="margin-bottom:6px">
+                                        <span class="cluster-badge" style="background:${clusterColors[cluster]||'#64748b'}20;color:${clusterColors[cluster]||'#64748b'}">${cluster} (${clusters[cluster].length})</span>
+                                    </div>
+                                    ${clusters[cluster].map(p => `
+                                        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-radius:4px;font-size:13px" class="part-row">
+                                            <span>${p.name_ru || p.name}</span>
+                                            <button class="btn btn-sm" style="opacity:0.3;padding:2px" onclick="deletePart(${p.id})"><span class="material-symbols-outlined" style="font-size:14px">close</span></button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Seed button
+            document.getElementById('btn-seed-catalog')?.addEventListener('click', async () => {
+                const btn = document.getElementById('btn-seed-catalog');
+                btn.disabled = true; btn.textContent = 'Загрузка...';
+                try {
+                    const r = await api.post('/api/promotion/seed-catalog', {});
+                    showToast(`Загружено: ${r.brands||0} марок, ${r.models||0} моделей, ${r.parts||0} категорий`, 'success');
+                    window._promTab = 'catalog'; renderPromotion(container);
+                } catch (e) { showToast('Ошибка: ' + e.message, 'error'); btn.disabled = false; }
+            });
+
+            // Add brand
+            document.getElementById('btn-add-brand')?.addEventListener('click', () => {
+                const name = prompt('Название марки (англ):');
+                if (!name) return;
+                const nameRu = prompt('Название по-русски (необязательно):') || '';
+                api.post('/api/promotion/brands', { name, name_ru: nameRu })
+                    .then(() => { showToast('Марка добавлена', 'success'); window._promTab = 'catalog'; renderPromotion(container); })
+                    .catch(e => showToast('Ошибка: ' + e.message, 'error'));
+            });
+
+            // Add part
+            document.getElementById('btn-add-part')?.addEventListener('click', () => {
+                const name = prompt('Название запчасти:');
+                if (!name) return;
+                const cluster = prompt('Кластер (тормоза/подвеска/привод/двигатель/фильтры/электрика/кузов/выхлоп):') || '';
+                api.post('/api/promotion/parts', { name, name_ru: name, cluster })
+                    .then(() => { showToast('Категория добавлена', 'success'); window._promTab = 'catalog'; renderPromotion(container); })
+                    .catch(e => showToast('Ошибка: ' + e.message, 'error'));
+            });
+
+            // Brand row click — show models
+            document.querySelectorAll('.brand-row').forEach(row => {
+                row.addEventListener('click', async () => {
+                    const brandId = row.dataset.brandId;
+                    document.querySelectorAll('.brand-row').forEach(r => r.style.background = '');
+                    row.style.background = 'var(--bg-input)';
+                    const panel = document.getElementById('brand-models-panel');
+                    panel.innerHTML = '<div class="spinner" style="margin:12px auto"></div>';
+                    try {
+                        const data = await api.get(`/api/promotion/brands/${brandId}/models`);
+                        panel.innerHTML = `
+                            <div class="card" style="padding:16px">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                                    <h4 style="margin:0;font-size:14px">${data.brand.name} — модели (${data.total})</h4>
+                                    <button class="btn btn-sm btn-primary" id="btn-add-model"><span class="material-symbols-outlined" style="font-size:16px">add</span> Модель</button>
+                                </div>
+                                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                    ${data.models.map(m => `
+                                        <div class="brand-chip" title="${m.name_ru}">
+                                            ${m.popular ? '<span class="material-symbols-outlined" style="font-size:12px;color:var(--warning)">star</span>' : ''}
+                                            ${m.name}
+                                            <span class="material-symbols-outlined" style="font-size:12px;opacity:0.3;cursor:pointer" onclick="event.stopPropagation();deleteModel(${m.id})">close</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                        document.getElementById('btn-add-model')?.addEventListener('click', () => {
+                            const name = prompt('Название модели:');
+                            if (!name) return;
+                            api.post(`/api/promotion/brands/${brandId}/models`, { name, name_ru: '', popular: false })
+                                .then(() => { showToast('Модель добавлена', 'success'); row.click(); })
+                                .catch(e => showToast('Ошибка: ' + e.message, 'error'));
+                        });
+                    } catch (e) { panel.innerHTML = `<p style="color:var(--danger)">Ошибка: ${e.message}</p>`; }
+                });
+            });
+
         } catch (e) {
-            showToast('Ошибка: ' + e.message, 'error');
-            btn.disabled = false;
-            btn.innerHTML = '<span class="material-symbols-outlined">sync</span> Синхронизировать';
+            tabEl.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Ошибка загрузки: ${e.message}</p></div>`;
         }
+    }
+
+    // ── Tab: Keywords ──
+    async function renderKeywordsTab(tabEl) {
+        tabEl.innerHTML = '<div class="spinner"></div>';
+        try {
+            const [preview, progress] = await Promise.all([
+                api.get('/api/promotion/keywords/preview'),
+                api.get('/api/promotion/campaigns/batch/progress'),
+            ]);
+            const totals = preview.totals || {};
+            const brands = preview.brands || [];
+            const isRunning = progress.running;
+
+            tabEl.innerHTML = `
+                <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Всего кампаний</div><div class="kpi-value" style="font-size:20px">${totals.campaigns||0}</div></div>
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Групп объявлений</div><div class="kpi-value" style="font-size:20px">${(totals.groups||0).toLocaleString()}</div></div>
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Ключевых фраз</div><div class="kpi-value" style="font-size:20px">${(totals.keywords||0).toLocaleString()}</div></div>
+                    <div class="kpi-card" style="padding:14px"><div class="kpi-label">Марок</div><div class="kpi-value" style="font-size:20px">${totals.brands||0}</div></div>
+                </div>
+
+                ${isRunning ? `
+                <!-- Active batch progress -->
+                <div class="card" style="padding:20px;margin-bottom:16px;border:2px solid var(--primary)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <h3 style="margin:0;font-size:15px;color:var(--primary)">
+                            <span class="material-symbols-outlined" style="font-size:18px;animation:spin 1s linear infinite">progress_activity</span>
+                            Создание кампаний...
+                        </h3>
+                        <span style="font-size:13px;color:var(--text-muted)">${progress.brands_done||0}/${progress.brands_total||0} марок</span>
+                    </div>
+                    <div style="background:var(--bg-input);border-radius:8px;height:8px;margin-bottom:12px;overflow:hidden">
+                        <div style="width:${progress.brands_total ? (progress.brands_done/progress.brands_total*100) : 0}%;height:100%;background:var(--primary);border-radius:8px;transition:width 0.5s"></div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;font-size:13px">
+                        <div><span style="color:var(--text-muted)">Марка:</span> <b>${progress.current_brand||'—'}</b></div>
+                        <div><span style="color:var(--text-muted)">Кампаний:</span> <b>${progress.campaigns_created||0}</b></div>
+                        <div><span style="color:var(--text-muted)">Групп:</span> <b>${progress.groups_created||0}</b></div>
+                        <div><span style="color:var(--text-muted)">Ключевиков:</span> <b>${progress.keywords_added||0}</b></div>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-secondary);max-height:120px;overflow-y:auto;background:var(--bg-input);border-radius:6px;padding:8px;font-family:monospace">
+                        ${(progress.log||[]).slice(-10).map(l => `<div>${l}</div>`).join('')}
+                    </div>
+                    ${progress.errors?.length ? `<div style="margin-top:8px;color:var(--danger);font-size:12px">${progress.errors.length} ошибок</div>` : ''}
+                </div>` : ''}
+
+                <!-- Batch creation controls -->
+                <div class="card" style="padding:16px;margin-bottom:16px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <h3 style="margin:0;font-size:15px">Создание кампаний</h3>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <div style="display:flex;align-items:center;gap:6px;font-size:13px">
+                                <label>Бюджет/день:</label>
+                                <input type="number" id="batch-budget" value="300" min="300" step="50" style="width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-input);color:var(--text-primary)"> ₽
+                            </div>
+                            <div style="display:flex;gap:4px">
+                                <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" id="geo-msk" checked> МСК+СПб</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" id="geo-regions" checked> Регионы</label>
+                            </div>
+                            <button class="btn btn-primary" id="btn-batch-create" ${isRunning ? 'disabled' : ''}>
+                                <span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span>
+                                Создать выбранные
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom:8px;display:flex;gap:8px;justify-content:space-between;align-items:center">
+                        <div style="display:flex;gap:8px">
+                            <button class="btn btn-sm btn-secondary" id="btn-select-all">Выбрать все</button>
+                            <button class="btn btn-sm btn-secondary" id="btn-select-popular">Только ТОП-5</button>
+                            <button class="btn btn-sm btn-secondary" id="btn-deselect-all">Сбросить</button>
+                        </div>
+                        <span style="font-size:12px;color:var(--text-muted)" id="selected-count">Выбрано: 0</span>
+                    </div>
+
+                    <table class="data-table">
+                        <thead><tr><th style="width:40px"></th><th>Марка</th><th>Моделей</th><th>Групп</th><th>Ключевиков</th><th></th></tr></thead>
+                        <tbody>
+                            ${brands.map(b => `<tr>
+                                <td><input type="checkbox" class="brand-check" data-brand-id="${b.brand_id}" value="${b.brand_id}"></td>
+                                <td style="font-weight:600">${b.brand}</td>
+                                <td>${b.models}</td>
+                                <td>${b.groups}</td>
+                                <td style="font-weight:600;color:var(--primary)">${b.keywords.toLocaleString()}</td>
+                                <td><button class="btn btn-sm btn-secondary" onclick="previewBrandKeywords(${b.brand_id}, '${b.brand}')"><span class="material-symbols-outlined" style="font-size:16px">visibility</span></button></td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Preview area -->
+                <div id="kw-preview-area"></div>
+            `;
+
+            // Update selected count
+            const updateCount = () => {
+                const checked = document.querySelectorAll('.brand-check:checked').length;
+                const el = document.getElementById('selected-count');
+                if (el) el.textContent = 'Выбрано: ' + checked;
+            };
+            document.querySelectorAll('.brand-check').forEach(cb => cb.addEventListener('change', updateCount));
+
+            // Select all / popular / deselect
+            document.getElementById('btn-select-all')?.addEventListener('click', () => {
+                document.querySelectorAll('.brand-check').forEach(cb => cb.checked = true);
+                updateCount();
+            });
+            document.getElementById('btn-deselect-all')?.addEventListener('click', () => {
+                document.querySelectorAll('.brand-check').forEach(cb => cb.checked = false);
+                updateCount();
+            });
+            document.getElementById('btn-select-popular')?.addEventListener('click', () => {
+                document.querySelectorAll('.brand-check').forEach(cb => cb.checked = false);
+                const topBrands = brands.sort((a,b) => b.models - a.models).slice(0, 5);
+                topBrands.forEach(b => {
+                    const cb = document.querySelector(`.brand-check[data-brand-id="${b.brand_id}"]`);
+                    if (cb) cb.checked = true;
+                });
+                updateCount();
+            });
+
+            // Batch create
+            document.getElementById('btn-batch-create')?.addEventListener('click', async () => {
+                const selectedIds = [...document.querySelectorAll('.brand-check:checked')].map(cb => parseInt(cb.value));
+                if (!selectedIds.length) { showToast('Выберите хотя бы одну марку', 'warning'); return; }
+                
+                const budget = parseFloat(document.getElementById('batch-budget').value) || 150;
+                const geoSegments = [];
+                if (document.getElementById('geo-msk')?.checked) geoSegments.push('msk_spb');
+                if (document.getElementById('geo-regions')?.checked) geoSegments.push('regions');
+                if (!geoSegments.length) { showToast('Выберите хотя бы один гео-сегмент', 'warning'); return; }
+
+                const totalCamps = selectedIds.length * geoSegments.length;
+                if (!confirm(`Создать ${totalCamps} кампаний для ${selectedIds.length} марок?\n\nБюджет: ${budget} ₽/день на кампанию\nГео: ${geoSegments.join(', ')}`)) return;
+
+                const btn = document.getElementById('btn-batch-create');
+                btn.disabled = true;
+                btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Запуск...';
+
+                try {
+                    await api.post('/api/promotion/campaigns/batch', {
+                        brand_ids: selectedIds,
+                        geo_segments: geoSegments,
+                        daily_budget: budget,
+                    });
+                    showToast('Создание запущено!', 'success');
+                    // Start polling progress
+                    const pollInterval = setInterval(async () => {
+                        try {
+                            const p = await api.get('/api/promotion/campaigns/batch/progress');
+                            if (!p.running) {
+                                clearInterval(pollInterval);
+                                showToast(`Готово! Кампаний: ${p.campaigns_created}, Групп: ${p.groups_created}, Ключевиков: ${p.keywords_added}`, 'success');
+                                window._promTab = 'keywords';
+                                renderPromotion(container);
+                            } else {
+                                window._promTab = 'keywords';
+                                renderPromotion(container);
+                            }
+                        } catch (e) { clearInterval(pollInterval); }
+                    }, 3000);
+                } catch (e) {
+                    showToast('Ошибка: ' + e.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span> Создать выбранные';
+                }
+            });
+
+        } catch (e) {
+            tabEl.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>Справочник пуст. Сначала загрузите данные во вкладке «Справочник».</p></div>`;
+        }
+    }
+
+    // Global helpers for catalog
+    window.deleteBrand = async (id) => {
+        if (!confirm('Удалить марку и все её модели?')) return;
+        try { await api.del(`/api/promotion/brands/${id}`); showToast('Удалено', 'success'); window._promTab = 'catalog'; renderPromotion(container); }
+        catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+    };
+    window.deleteModel = async (id) => {
+        if (!confirm('Удалить модель?')) return;
+        try { await api.del(`/api/promotion/models/${id}`); showToast('Удалено', 'success'); window._promTab = 'catalog'; renderPromotion(container); }
+        catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+    };
+    window.deletePart = async (id) => {
+        if (!confirm('Удалить категорию?')) return;
+        try { await api.del(`/api/promotion/parts/${id}`); showToast('Удалено', 'success'); window._promTab = 'catalog'; renderPromotion(container); }
+        catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+    };
+    window.previewBrandKeywords = async (brandId, brandName) => {
+        const area = document.getElementById('kw-preview-area');
+        if (!area) return;
+        area.innerHTML = '<div class="spinner" style="margin:20px auto"></div>';
+        try {
+            const data = await api.get(`/api/promotion/keywords/generate/${brandId}`);
+            area.innerHTML = `
+                <div class="card" style="padding:16px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <h3 style="margin:0;font-size:15px">${brandName}: ${data.total_groups} групп, ${data.total_keywords.toLocaleString()} ключевиков</h3>
+                        <button class="btn btn-sm btn-secondary" onclick="document.getElementById('kw-preview-area').innerHTML=''">
+                            <span class="material-symbols-outlined" style="font-size:16px">close</span>
+                        </button>
+                    </div>
+                    <div style="max-height:400px;overflow-y:auto">
+                        ${data.groups.slice(0, 20).map(g => `
+                            <details style="margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+                                <summary style="cursor:pointer;font-weight:500;font-size:13px;display:flex;justify-content:space-between;align-items:center">
+                                    <span>${g.name}</span>
+                                    <span style="font-size:12px;color:var(--text-muted)">${g.autotarget ? 'автотаргет' : g.keywords.length + ' ключей'}</span>
+                                </summary>
+                                ${g.autotarget ? '<p style="font-size:12px;color:var(--text-muted);margin:8px 0 0">Без ключевых слов — автотаргет Яндекса</p>' : `
+                                <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);line-height:1.8">
+                                    ${g.keywords.map(k => `<div style="padding:2px 0;border-bottom:1px solid var(--border)">${k}</div>`).join('')}
+                                </div>`}
+                                <div style="margin-top:8px">
+                                    ${g.ads.map(a => `
+                                        <div style="background:var(--bg-input);border-radius:6px;padding:8px;margin-bottom:6px;font-size:12px">
+                                            <div style="color:var(--primary);font-weight:600">${a.title1}</div>
+                                            <div style="color:var(--success);font-size:11px">${a.title2}</div>
+                                            <div style="color:var(--text-secondary)">${a.text}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </details>
+                        `).join('')}
+                        ${data.groups.length > 20 ? `<p style="text-align:center;color:var(--text-muted);font-size:13px">... и ещё ${data.groups.length - 20} групп</p>` : ''}
+                    </div>
+                </div>
+            `;
+        } catch (e) { area.innerHTML = `<p style="color:var(--danger)">Ошибка: ${e.message}</p>`; }
+    };
+
+    // ── Tab switching ──
+    const tabContent = document.getElementById('prom-tab-content');
+    document.querySelectorAll('.prom-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.prom-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const tabName = tab.dataset.tab;
+            window._promTab = tabName;
+            if (tabName === 'campaigns') renderCampaignsTab(tabContent);
+            else if (tabName === 'catalog') renderCatalogTab(tabContent);
+            else if (tabName === 'keywords') renderKeywordsTab(tabContent);
+        });
     });
 
-    // Enable promotion — both buttons
-    const enableHandler = async () => {
-        showEnableCampaignModal(container);
-    };
-    document.getElementById('btn-yd-enable')?.addEventListener('click', enableHandler);
-    document.getElementById('btn-yd-enable-big')?.addEventListener('click', enableHandler);
+    // Render active tab
+    if (activePromTab === 'campaigns') renderCampaignsTab(tabContent);
+    else if (activePromTab === 'catalog') renderCatalogTab(tabContent);
+    else if (activePromTab === 'keywords') renderKeywordsTab(tabContent);
 
+    // Disconnect handler
     document.getElementById('btn-yd-disconnect')?.addEventListener('click', async () => {
-        if (!confirm('Отключить Яндекс.Директ? Кампании останутся в Директе, но больше не будут отображаться здесь.')) return;
-        try {
-            await api.del('/api/promotion/config');
-            showToast('Яндекс.Директ отключён', 'success');
-            setTimeout(() => renderPromotion(container), 300);
-        } catch (e) {
-            showToast('Ошибка: ' + e.message, 'error');
-        }
+        if (!confirm('Отключить Яндекс.Директ?')) return;
+        try { await api.del('/api/promotion/config'); showToast('Отключён', 'success'); setTimeout(() => renderPromotion(container), 300); }
+        catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
     });
 }
 

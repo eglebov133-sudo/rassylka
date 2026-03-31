@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ data.title }} — UMIT Запчасти</title>
+    <meta name="description" content="{{ data.seo_text[:160] if data.seo_text else 'Запчасти для авто и спецтехники — в наличии и под заказ' }}">
+    <meta name="robots" content="noindex, nofollow">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/parts-static/landing.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-inner">
+            <a href="/parts" class="logo">
+                <div class="logo-block">
+                    <div>
+                        <span class="logo-u">U</span><span class="logo-text">mit</span>
+                    </div>
+                    <span class="logo-sub">Запчасти для авто и спецтехники</span>
+                </div>
+            </a>
+            <nav class="header-nav">
+                <a class="nav-item" href="https://umit.pro" target="_blank">
+                    <span class="material-symbols-outlined">storefront</span>
+                    <span>Маркетплейс</span>
+                </a>
+                <a class="nav-item" id="nav-cart" onclick="showCart()" style="cursor:pointer">
+                    <span class="material-symbols-outlined">shopping_cart</span>
+                    <span>Корзина</span>
+                    <span class="nav-badge" id="cart-badge" style="display:none">0</span>
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Search Bar -->
+    <section class="search-section">
+        <div class="search-cta">
+            <div class="search-cta-icon">
+                <span class="material-symbols-outlined">keyboard_arrow_down</span>
+            </div>
+            <h2 class="search-cta-title">Введите название или артикул запчасти</h2>
+            <p class="search-cta-subtitle">Подберём деталь за секунды из 500+ поставщиков с доставкой по всей России</p>
+        </div>
+        <form class="search-bar" id="search-form" action="/parts" method="GET">
+            <input class="search-input"
+                   id="search-input"
+                   name="q"
+                   type="text"
+                   placeholder="Например: тормозные колодки Kia Rio 2018 или 04465-02220..."
+                   value="{{ query }}"
+                   autocomplete="off">
+            <button class="search-btn" type="submit">
+                <span class="material-symbols-outlined">search</span>
+            </button>
+        </form>
+        <div class="search-hints">
+            <span class="search-hint" onclick="document.getElementById('search-input').value='масляный фильтр toyota camry';document.getElementById('search-form').submit()">масляный фильтр toyota camry</span>
+            <span class="search-hint" onclick="document.getElementById('search-input').value='04465-02220';document.getElementById('search-form').submit()">04465-02220</span>
+            <span class="search-hint" onclick="document.getElementById('search-input').value='ступичный подшипник hyundai solaris';document.getElementById('search-form').submit()">ступичный подшипник solaris</span>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Breadcrumbs -->
+        <nav class="breadcrumbs">
+            <a href="/parts">Главная</a>
+            {% if data.brand %}
+            <span class="sep">›</span>
+            <a href="/parts?q={{ data.brand }}">{{ data.brand }}</a>
+            {% endif %}
+            {% if data.model %}
+            <span class="sep">›</span>
+            <a href="/parts?q={{ data.brand }}+{{ data.model }}">{{ data.model }}</a>
+            {% endif %}
+            {% if data.category %}
+            <span class="sep">›</span>
+            <span>{{ data.category }}</span>
+            {% endif %}
+        </nav>
+
+        <!-- Hero -->
+        <div class="page-hero">
+            <h1>{{ data.title }}</h1>
+            <p class="subtitle">{{ data.subtitle }}</p>
+        </div>
+
+        <!-- Catalog: Brands Grid (home page) -->
+        {% if catalog_type == 'home' %}
+        <h2 class="section-title">Марки автомобилей</h2>
+        <div class="categories-grid catalog-grid">
+            {% for brand in brands %}
+            <a class="category-card" href="/parts?q={{ brand.name }}">
+                <div class="category-icon">
+                    <span class="material-symbols-outlined">{{ brand.icon }}</span>
+                </div>
+                <span class="category-name">{{ brand.name }}</span>
+                <span class="category-count">{{ brand.models|length }} моделей</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Catalog: Models Grid (brand page) -->
+        {% if catalog_type == 'brand' %}
+        <h2 class="section-title">Модели {{ brand_name }}</h2>
+        <div class="categories-grid catalog-grid">
+            {% for model in models %}
+            <a class="category-card" href="/parts?q={{ brand_name }}+{{ model }}">
+                <div class="category-icon">
+                    <span class="material-symbols-outlined">directions_car</span>
+                </div>
+                <span class="category-name">{{ model }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Catalog: Part Categories Grid (model page) -->
+        {% if catalog_type == 'model' %}
+        <h2 class="section-title">Категории запчастей</h2>
+        <div class="categories-grid catalog-grid">
+            {% for cat in part_categories %}
+            <a class="category-card" href="/parts?q={{ brand_name }}+{{ model_name }}+{{ cat.name }}">
+                <div class="category-icon">
+                    <span class="material-symbols-outlined">{{ cat.icon }}</span>
+                </div>
+                <span class="category-name">{{ cat.name }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Categories -->
+        {% if data.subcategories %}
+        <h2 class="section-title">Категории запчастей</h2>
+        <div class="categories-grid">
+            {% for cat in data.subcategories %}
+            <a class="category-card" href="/parts?q={% if data.brand %}{{ data.brand }}+{% endif %}{% if data.model %}{{ data.model }}+{% endif %}{{ cat.name }}">
+                <div class="category-icon">
+                    <span class="material-symbols-outlined">{{ cat.icon }}</span>
+                </div>
+                <span class="category-name">{{ cat.name }}</span>
+                <span class="category-count">{{ cat.count }} товаров</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <h2 class="section-title">Популярные запчасти</h2>
+        <div class="products-grid products-grid-rich" id="popular-grid">
+            {% for part in data.popular_parts %}
+            <div class="product-card product-card-rich">
+                <div class="product-header">
+                    {% if part.original or part.origin == 'original' %}
+                    <span class="product-badge badge-original">Оригинал</span>
+                    {% else %}
+                    <span class="product-badge badge-aftermarket">Аналог</span>
+                    {% endif %}
+                    {% if part.status == 'in_stock' or part.in_stock %}
+                    <span class="product-badge badge-stock">● В наличии</span>
+                    {% elif part.status == 'few_left' %}
+                    <span class="product-badge badge-few">● Мало</span>
+                    {% else %}
+                    <span class="product-badge badge-order">● Под заказ</span>
+                    {% endif %}
+                </div>
+                <div class="product-name">{{ part.name }}</div>
+                <div class="product-meta-row">
+                    <span class="product-article">Art: {{ part.article }}</span>
+                    {% if part.manufacturer %}
+                    <span class="product-manufacturer-tag">{{ part.manufacturer }}</span>
+                    {% endif %}
+                </div>
+                {% if part.description %}
+                <div class="product-description-rich">{{ part.description }}</div>
+                {% endif %}
+                {% if part.specs %}
+                <div class="product-specs">
+                    {% for spec in part.specs.split(';') %}
+                    {% if spec.strip() %}
+                    <span class="spec-tag">{{ spec.strip() }}</span>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if part.compatibility %}
+                <div class="product-compatibility">
+                    <span class="material-symbols-outlined">directions_car</span>
+                    {{ part.compatibility }}
+                </div>
+                {% endif %}
+                <div class="product-footer">
+                    <div class="product-price-block">
+                        <div class="product-price">{{ "{:,.0f}".format(part.price).replace(",", " ") }} <span class="currency">₽</span></div>
+                        {% if part.old_price %}
+                        <div class="product-old-price">{{ "{:,.0f}".format(part.old_price).replace(",", " ") }} ₽</div>
+                        {% endif %}
+                        <div class="product-delivery">
+                            <span class="material-symbols-outlined">local_shipping</span>
+                            {{ part.delivery_days }} дн.
+                        </div>
+                    </div>
+                    <button class="btn-cart btn-cart-ssr"
+                            data-name="{{ part.name }}"
+                            data-article="{{ part.article }}"
+                            data-price="{{ part.price }}">
+                        <span class="material-symbols-outlined">add_shopping_cart</span>
+                        В корзину
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="load-more-section" id="popular-load-more">
+            <p class="load-more-hint">Показано <span id="popular-count">{{ data.popular_parts|length }}</span> из {{ data.total_count|default(data.popular_parts|length * 10) }}+ позиций</p>
+            <button class="btn-load-more" onclick="loadMorePopular()">
+                <span class="material-symbols-outlined">expand_more</span>
+                Показать ещё
+            </button>
+        </div>
+
+
+
+
+        <!-- Search Results (AJAX) -->
+        <div class="search-results" id="search-results">
+            <div class="results-header">
+                <h2 class="section-title">Результаты поиска</h2>
+                <span class="results-count" id="results-count"></span>
+            </div>
+            <div class="products-grid" id="results-grid"></div>
+            <div class="load-more-section" id="search-load-more" style="display:none">
+                <p class="load-more-hint">Найдено больше позиций, чем показано</p>
+                <button class="btn-load-more" onclick="loadMoreSearch()">
+                    <span class="material-symbols-outlined">expand_more</span>
+                    Показать ещё
+                </button>
+            </div>
+        </div>
+
+        <!-- Cart Section -->
+        <div class="cart-section" id="cart-section">
+            <h2 class="section-title">Корзина</h2>
+            <div class="cart-panel">
+                <div id="cart-items"></div>
+                <div class="cart-total" id="cart-total" style="display:none">
+                    <span class="cart-total-label">Итого:</span>
+                    <span class="cart-total-price" id="cart-total-price">0 ₽</span>
+                </div>
+
+                <div class="disclaimer">
+                    <span class="material-symbols-outlined">info</span>
+                    <span>Товары поставляются под заказ. Срок поставки указан ориентировочно. Точную стоимость и сроки уточнит менеджер после оформления заявки.</span>
+                </div>
+
+                <!-- Order Form -->
+                <form class="order-form" id="order-form" onsubmit="submitOrder(event)">
+                    <h3>Оформить заявку</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Имя *</label>
+                            <input class="form-input" id="order-name" type="text" placeholder="Ваше имя" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Телефон *</label>
+                            <input class="form-input" id="order-phone" type="tel" placeholder="+7 (___) ___-__-__" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Email</label>
+                            <input class="form-input" id="order-email" type="email" placeholder="email@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Город</label>
+                            <input class="form-input" id="order-city" type="text" placeholder="Город доставки">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group full">
+                            <label class="form-label">Комментарий</label>
+                            <input class="form-input" id="order-comment" type="text" placeholder="Дополнительная информация">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-order" id="btn-submit-order">
+                        <span class="material-symbols-outlined">send</span>
+                        Отправить заявку
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Order Success -->
+        <div class="order-success" id="order-success">
+            <div class="success-icon">
+                <span class="material-symbols-outlined">check_circle</span>
+            </div>
+            <h2>Заявка оформлена!</h2>
+            <p>Наш менеджер свяжется с вами в ближайшее время для уточнения деталей и стоимости доставки.</p>
+            <br>
+            <button class="btn-cart" onclick="location.href='/parts?q={{ query }}'">
+                <span class="material-symbols-outlined">arrow_back</span>
+                Вернуться к поиску
+            </button>
+        </div>
+
+        <!-- SEO Text -->
+        {% if data.seo_text %}
+        <div class="seo-section">
+            <p>{{ data.seo_text }}</p>
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-inner">
+            <div class="footer-left">
+                <span class="logo-u" style="font-size:24px">U</span><span class="logo-text" style="font-size:24px">mit</span>
+                <span class="footer-copyright">© 2024–2026 Все права защищены</span>
+            </div>
+            <div class="footer-links">
+                <a href="https://umit-prod.purpleplane-it.com/static/pdf-agreement-files/user_agreement.pdf" target="_blank">Пользовательское соглашение</a>
+                <a href="https://umit-prod.purpleplane-it.com/static/pdf-agreement-files/privacy-policy.pdf" target="_blank">Политика конфиденциальности</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Cart FAB -->
+    <button class="cart-fab" id="cart-fab" onclick="showCart()">
+        <span class="material-symbols-outlined">shopping_cart</span>
+        <span class="cart-fab-badge" id="cart-fab-badge">0</span>
+    </button>
+
+    <!-- Search Loading Overlay -->
+    <div class="search-overlay" id="search-overlay">
+        <div class="search-overlay-content">
+            <div class="search-pulse-ring">
+                <span class="material-symbols-outlined search-pulse-icon">manage_search</span>
+            </div>
+            <h2 class="search-overlay-title">Ищем запчасти по вашему запросу</h2>
+            <p class="search-overlay-query" id="search-overlay-query"></p>
+            <div class="search-progress-bar">
+                <div class="search-progress-fill" id="search-progress-fill"></div>
+            </div>
+            <div class="search-stats">
+                <div class="search-stat">
+                    <span class="search-stat-number" id="search-counter">0</span>
+                    <span class="search-stat-label">деталей найдено</span>
+                </div>
+                <div class="search-stat">
+                    <span class="search-stat-number" id="supplier-counter">0</span>
+                    <span class="search-stat-label">поставщиков</span>
+                </div>
+                <div class="search-stat">
+                    <span class="search-stat-number" id="price-counter">0</span>
+                    <span class="search-stat-label">цен сравнено</span>
+                </div>
+            </div>
+            <p class="search-status-text" id="search-status-text">Подключение к базам данных...</p>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast">
+        <span class="material-symbols-outlined toast-icon">check_circle</span>
+        <span class="toast-text" id="toast-text">Товар добавлен в корзину</span>
+    </div>
+
+    <script>
+    // ═══ State ═══
+    let cart = [];
+    let popularPage = 1;
+    let searchPage = 1;
+    let lastSearchQuery = '';
+    const BRAND = "{{ data.brand|default('') }}";
+    const MODEL = "{{ data.model|default('') }}";
+    const CATEGORY = "{{ data.category|default('') }}";
+
+    // ═══ Search ═══
+    async function doSearch(e) {
+        if (e) e.preventDefault();
+        const q = document.getElementById('search-input').value.trim();
+        if (!q) return;
+
+        showLoading(true);
+
+        try {
+            const resp = await fetch('/api/parts/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query: q, brand: BRAND, category: CATEGORY}),
+            });
+            const data = await resp.json();
+            renderResults(data.parts || []);
+        } catch (err) {
+            console.error('Search failed:', err);
+            showToast('Ошибка поиска. Попробуйте ещё раз.');
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    function searchCategory(name) {
+        document.getElementById('search-input').value = name;
+        doSearch();
+    }
+
+    function renderResults(parts) {
+        const grid = document.getElementById('results-grid');
+        const section = document.getElementById('search-results');
+        const count = document.getElementById('results-count');
+
+        if (!parts.length) {
+            grid.innerHTML = '<p style="color:var(--text-muted);padding:24px;text-align:center">По вашему запросу ничего не найдено. Попробуйте изменить запрос.</p>';
+            section.classList.add('active');
+            count.innerHTML = '';
+            return;
+        }
+
+        count.innerHTML = `Найдено: <strong>${parts.length}</strong> товаров`;
+
+        grid.innerHTML = parts.map(p => {
+            const statusBadge = p.status === 'in_stock'
+                ? '<span class="product-badge badge-stock">● В наличии</span>'
+                : p.status === 'few_left'
+                ? '<span class="product-badge badge-few">● Мало</span>'
+                : '<span class="product-badge badge-order">● Под заказ</span>';
+
+            const originBadge = p.origin === 'original'
+                ? '<span class="product-badge badge-original">Оригинал</span>'
+                : '<span class="product-badge badge-aftermarket">Аналог</span>';
+
+            const oldPrice = p.old_price
+                ? `<div class="product-old-price">${formatPrice(p.old_price)} ₽</div>`
+                : '';
+
+            return `
+            <div class="product-card" style="animation: fadeIn 0.3s ease ${Math.random()*0.2}s both">
+                <div class="product-header">
+                    ${originBadge}
+                    ${statusBadge}
+                </div>
+                <div class="product-name">${esc(p.name)}</div>
+                <div class="product-article">Art: ${esc(p.article)}</div>
+                <div class="product-manufacturer">${esc(p.manufacturer || '')}</div>
+                <div class="product-description">${esc(p.description || '')}</div>
+                <div class="product-footer">
+                    <div class="product-price-block">
+                        <div class="product-price">${formatPrice(p.price)} <span class="currency">₽</span></div>
+                        ${oldPrice}
+                        <div class="product-delivery">
+                            <span class="material-symbols-outlined">local_shipping</span>
+                            ${p.delivery_days || '?'} дн.
+                        </div>
+                    </div>
+                    <button class="btn-cart" onclick='addToCart(${JSON.stringify(p)})'>
+                        <span class="material-symbols-outlined">add_shopping_cart</span>
+                        В корзину
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+
+        section.classList.add('active');
+        section.scrollIntoView({behavior: 'smooth', block: 'start'});
+        // Show load-more
+        document.getElementById('search-load-more').style.display = 'flex';
+        searchPage = 1;
+        lastSearchQuery = document.getElementById('search-input').value.trim();
+    }
+
+    // ═══ Load More ═══
+    function renderProductCard(p) {
+        const statusBadge = p.status === 'in_stock'
+            ? '<span class="product-badge badge-stock">● В наличии</span>'
+            : p.status === 'few_left'
+            ? '<span class="product-badge badge-few">● Мало</span>'
+            : '<span class="product-badge badge-order">● Под заказ</span>';
+
+        const originBadge = (p.origin === 'original' || p.original)
+            ? '<span class="product-badge badge-original">Оригинал</span>'
+            : '<span class="product-badge badge-aftermarket">Аналог</span>';
+
+        const oldPrice = p.old_price
+            ? `<div class="product-old-price">${formatPrice(p.old_price)} ₽</div>`
+            : '';
+
+        return `
+        <div class="product-card" style="animation: fadeIn 0.3s ease both">
+            <div class="product-header">
+                ${originBadge}
+                ${statusBadge}
+            </div>
+            <div class="product-name">${esc(p.name)}</div>
+            <div class="product-article">Art: ${esc(p.article)}</div>
+            ${p.manufacturer ? `<div class="product-manufacturer">${esc(p.manufacturer)}</div>` : ''}
+            ${p.description ? `<div class="product-description">${esc(p.description)}</div>` : ''}
+            <div class="product-footer">
+                <div class="product-price-block">
+                    <div class="product-price">${formatPrice(p.price)} <span class="currency">₽</span></div>
+                    ${oldPrice}
+                    <div class="product-delivery">
+                        <span class="material-symbols-outlined">local_shipping</span>
+                        ${p.delivery_days || '?'} дн.
+                    </div>
+                </div>
+                <button class="btn-cart" onclick='addToCart(${JSON.stringify(p)})'>
+                    <span class="material-symbols-outlined">add_shopping_cart</span>
+                    В корзину
+                </button>
+            </div>
+        </div>`;
+    }
+
+    async function loadMorePopular() {
+        popularPage++;
+        const btn = document.querySelector('#popular-load-more .btn-load-more');
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Загрузка...';
+
+        try {
+            const q = '{{ query|default("") }}' || BRAND + ' ' + MODEL + ' ' + CATEGORY;
+            const resp = await fetch('/api/parts/load-more', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query: q.trim(), brand: BRAND, category: CATEGORY, page: popularPage}),
+            });
+            const data = await resp.json();
+            const parts = data.parts || [];
+
+            if (parts.length) {
+                const grid = document.getElementById('popular-grid');
+                grid.innerHTML += parts.map(p => renderProductCard(p)).join('');
+                const counter = document.getElementById('popular-count');
+                counter.textContent = parseInt(counter.textContent) + parts.length;
+            }
+
+            if (!parts.length || popularPage >= 5) {
+                btn.style.display = 'none';
+            }
+        } catch (err) {
+            console.error('Load more failed:', err);
+            showToast('Ошибка загрузки. Попробуйте ещё раз.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined">expand_more</span> Показать ещё';
+        }
+    }
+
+    async function loadMoreSearch() {
+        searchPage++;
+        const btn = document.querySelector('#search-load-more .btn-load-more');
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Загрузка...';
+
+        try {
+            const resp = await fetch('/api/parts/load-more', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query: lastSearchQuery, brand: BRAND, category: CATEGORY, page: searchPage}),
+            });
+            const data = await resp.json();
+            const parts = data.parts || [];
+
+            if (parts.length) {
+                const grid = document.getElementById('results-grid');
+                grid.innerHTML += parts.map(p => renderProductCard(p)).join('');
+                const count = document.getElementById('results-count');
+                const current = parseInt(count.textContent.match(/\d+/)?.[0] || '0') + parts.length;
+                count.innerHTML = `Найдено: <strong>${current}</strong> товаров`;
+            }
+
+            if (!parts.length || searchPage >= 5) {
+                btn.style.display = 'none';
+            }
+        } catch (err) {
+            console.error('Load more search failed:', err);
+            showToast('Ошибка загрузки. Попробуйте ещё раз.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined">expand_more</span> Показать ещё';
+        }
+    }
+
+    // ═══ Cart ═══
+    function addToCart(item) {
+        cart.push({
+            name: item.name,
+            article: item.article,
+            price: item.price,
+            manufacturer: item.manufacturer || '',
+        });
+        updateCartUI();
+        showToast('Товар добавлен в корзину');
+    }
+
+    function removeFromCart(idx) {
+        cart.splice(idx, 1);
+        updateCartUI();
+        if (document.getElementById('cart-section').classList.contains('active')) {
+            renderCart();
+        }
+    }
+
+    function updateCartUI() {
+        const count = cart.length;
+        const badge = document.getElementById('cart-badge');
+        const fab = document.getElementById('cart-fab');
+        const fabBadge = document.getElementById('cart-fab-badge');
+
+        badge.textContent = count;
+        badge.style.display = count > 0 ? 'flex' : 'none';
+
+        fabBadge.textContent = count;
+        fab.classList.toggle('active', count > 0);
+    }
+
+    function showCart() {
+        const section = document.getElementById('cart-section');
+        section.classList.add('active');
+        renderCart();
+        section.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+
+    function renderCart() {
+        const container = document.getElementById('cart-items');
+        const totalEl = document.getElementById('cart-total');
+        const totalPrice = document.getElementById('cart-total-price');
+
+        if (!cart.length) {
+            container.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:24px">Корзина пуста</p>';
+            totalEl.style.display = 'none';
+            document.getElementById('order-form').style.display = 'none';
+            return;
+        }
+
+        container.innerHTML = cart.map((item, i) => `
+            <div class="cart-item">
+                <div class="cart-item-info">
+                    <div class="cart-item-name">${esc(item.name)}</div>
+                    <div class="cart-item-article">Art: ${esc(item.article)}</div>
+                </div>
+                <span class="cart-item-price">${formatPrice(item.price)} ₽</span>
+                <button class="cart-item-remove" onclick="removeFromCart(${i})">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        `).join('');
+
+        const total = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+        totalPrice.textContent = formatPrice(total) + ' ₽';
+        totalEl.style.display = 'flex';
+        document.getElementById('order-form').style.display = 'block';
+    }
+
+    // ═══ Order ═══
+    async function submitOrder(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-submit-order');
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px"></div> Отправка...';
+
+        const orderData = {
+            customer_name: document.getElementById('order-name').value,
+            customer_phone: document.getElementById('order-phone').value,
+            customer_email: document.getElementById('order-email').value,
+            customer_city: document.getElementById('order-city').value,
+            comment: document.getElementById('order-comment').value,
+            items: cart,
+            total_price: cart.reduce((s, i) => s + (i.price || 0), 0),
+            query: document.getElementById('search-input').value,
+            utm_term: new URLSearchParams(location.search).get('q') || '',
+            utm_source: new URLSearchParams(location.search).get('utm_source') || 'direct',
+            utm_campaign: new URLSearchParams(location.search).get('utm_campaign') || '',
+        };
+
+        try {
+            const resp = await fetch('/api/parts/order', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(orderData),
+            });
+
+            if (resp.ok) {
+                // Hide everything, show success
+                document.getElementById('cart-section').classList.remove('active');
+                document.getElementById('cart-fab').classList.remove('active');
+                document.getElementById('order-success').classList.add('active');
+                cart = [];
+                updateCartUI();
+            } else {
+                showToast('Ошибка при оформлении. Попробуйте ещё раз.');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined">send</span> Отправить заявку';
+            }
+        } catch (err) {
+            showToast('Ошибка сети. Проверьте подключение.');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined">send</span> Отправить заявку';
+        }
+    }
+
+    // ═══ Helpers ═══
+    function formatPrice(num) {
+        return Math.round(num).toLocaleString('ru-RU');
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+    }
+
+    function showLoading(on) {
+        document.getElementById('loading').classList.toggle('active', on);
+    }
+
+    let toastTimer;
+    function showToast(text) {
+        const toast = document.getElementById('toast');
+        document.getElementById('toast-text').textContent = text;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ═══ Search Overlay Animation ═══
+    const SEARCH_STATUSES = [
+        'Подключение к базам данных...',
+        'Поиск по каталогам OEM...',
+        'Проверка наличия на складах...',
+        'Сравнение цен от поставщиков...',
+        'Проверка совместимости...',
+        'Анализ аналогов и заменителей...',
+        'Формирование лучших предложений...',
+        'Проверка сроков доставки...',
+        'Подготовка результатов...',
+    ];
+
+    let searchAnimInterval = null;
+    let searchStatusIdx = 0;
+
+    function startSearchAnimation(query) {
+        const overlay = document.getElementById('search-overlay');
+        document.getElementById('search-overlay-query').textContent = '«' + query + '»';
+        document.getElementById('search-counter').textContent = '0';
+        document.getElementById('supplier-counter').textContent = '0';
+        document.getElementById('price-counter').textContent = '0';
+        document.getElementById('search-progress-fill').style.width = '0%';
+        searchStatusIdx = 0;
+        overlay.classList.add('active');
+
+        let partsCount = 0;
+        let suppCount = 0;
+        let priceCount = 0;
+        let progress = 0;
+
+        searchAnimInterval = setInterval(() => {
+            // Increment parts counter (accelerating then slowing)
+            const partsStep = Math.max(1, Math.floor(Math.random() * 8 + 2));
+            partsCount = Math.min(partsCount + partsStep, 350);
+            document.getElementById('search-counter').textContent = partsCount;
+
+            // Suppliers
+            if (Math.random() > 0.6 && suppCount < 48) {
+                suppCount += Math.ceil(Math.random() * 3);
+                document.getElementById('supplier-counter').textContent = Math.min(suppCount, 48);
+            }
+
+            // Prices compared
+            const priceStep = Math.floor(Math.random() * 15 + 5);
+            priceCount = Math.min(priceCount + priceStep, 900);
+            document.getElementById('price-counter').textContent = priceCount;
+
+            // Progress bar
+            progress = Math.min(progress + Math.random() * 4 + 1, 95);
+            document.getElementById('search-progress-fill').style.width = progress + '%';
+
+            // Rotate status text
+            if (Math.random() > 0.7 && searchStatusIdx < SEARCH_STATUSES.length - 1) {
+                searchStatusIdx++;
+                const el = document.getElementById('search-status-text');
+                el.style.opacity = '0';
+                setTimeout(() => {
+                    el.textContent = SEARCH_STATUSES[searchStatusIdx];
+                    el.style.opacity = '1';
+                }, 200);
+            }
+        }, 300);
+    }
+
+    function stopSearchAnimation() {
+        clearInterval(searchAnimInterval);
+        document.getElementById('search-overlay').classList.remove('active');
+    }
+
+    // ═══ Phone mask + SSR button handler + Form intercept ═══
+    document.addEventListener('DOMContentLoaded', () => {
+        const phoneInput = document.getElementById('order-phone');
+        phoneInput.addEventListener('input', function() {
+            let v = this.value.replace(/\D/g, '');
+            if (v.length > 0 && v[0] === '8') v = '7' + v.substring(1);
+            if (v.length > 0) {
+                let formatted = '+7';
+                if (v.length > 1) formatted += ' (' + v.substring(1, 4);
+                if (v.length > 4) formatted += ') ' + v.substring(4, 7);
+                if (v.length > 7) formatted += '-' + v.substring(7, 9);
+                if (v.length > 9) formatted += '-' + v.substring(9, 11);
+                this.value = formatted;
+            }
+        });
+
+        // Delegated click for SSR-rendered cart buttons
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.btn-cart-ssr');
+            if (btn) {
+                addToCart({
+                    name: btn.dataset.name,
+                    article: btn.dataset.article,
+                    price: parseFloat(btn.dataset.price) || 0,
+                    manufacturer: '',
+                });
+            }
+        });
+
+        // Fix invalid Material Symbols icons — replace with fallback
+        document.querySelectorAll('.category-icon .material-symbols-outlined').forEach(el => {
+            // If the icon text is longer than 30 chars or contains underscore-heavy names, it's likely invalid
+            // Material Symbols renders as ligatures — if offsetWidth is much larger than expected, icon failed
+            if (el.offsetWidth > 60) {
+                el.textContent = 'build';
+            }
+        });
+
+        // Intercept search form for loading animation
+        const searchForm = document.getElementById('search-form');
+        searchForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const q = document.getElementById('search-input').value.trim();
+            if (!q) return;
+
+            // Disable button
+            const btn = searchForm.querySelector('.search-btn');
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+
+            // Show animated overlay
+            startSearchAnimation(q);
+
+            // Fetch page in background (JS stays alive — works on Safari/iOS)
+            const url = '/parts?q=' + encodeURIComponent(q);
+            fetch(url)
+                .then(r => r.text())
+                .then(html => {
+                    // Push URL to history so back button works
+                    history.pushState(null, '', url);
+                    // Replace entire page with the response
+                    document.open();
+                    document.write(html);
+                    document.close();
+                })
+                .catch(() => {
+                    // Fallback: navigate normally if fetch fails
+                    window.location.href = url;
+                });
+        });
+    });
+    </script>
+</body>
+</html>
+

@@ -303,7 +303,7 @@ async def get_smtp_credentials():
         return {
             "host": SMTP_HOST, "port": SMTP_PORT,
             "user": SMTP_USER, "pass": SMTP_PASS,
-            "tls": True, "db_id": None,
+            "tls": SMTP_PORT == 465, "db_id": None,  # SSL only on port 465
         }
     return None
 

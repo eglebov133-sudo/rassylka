@@ -300,6 +300,49 @@ class YandexDirectCampaign(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+    brand_id = Column(Integer, ForeignKey("car_brands.id"), nullable=True)  # привязка к бренду
+    geo_segment = Column(String(50), default="")  # "msk_spb" / "regions"
+
+
+class CarBrand(Base):
+    """Справочник автомобильных марок."""
+    __tablename__ = "car_brands"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False, unique=True)  # Toyota
+    name_ru = Column(String(200), default="")                 # Тойота
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    models = relationship("CarModel", back_populates="brand", cascade="all, delete-orphan")
+
+
+class CarModel(Base):
+    """Справочник моделей автомобилей."""
+    __tablename__ = "car_models"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    brand_id = Column(Integer, ForeignKey("car_brands.id"), nullable=False)
+    name = Column(String(200), nullable=False)       # Camry
+    name_ru = Column(String(200), default="")         # Камри
+    popular = Column(Boolean, default=False)           # топ-модель (для приоритета)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    brand = relationship("CarBrand", back_populates="models")
+
+
+class PartCategory(Base):
+    """Справочник категорий запчастей."""
+    __tablename__ = "part_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False, unique=True)   # тормозные колодки
+    name_ru = Column(String(200), default="")                  # Тормозные колодки
+    cluster = Column(String(100), default="")                  # тормоза / подвеска / фильтры
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 
 # ═══════════════════════════════════════════════════
 #  Telegram Userbot Mailing
@@ -348,3 +391,28 @@ class TgCampaignRecipient(Base):
     sent_by_account = Column(String(100), default="")       # sender account ID
 
     campaign = relationship("TgCampaign", back_populates="recipients")
+
+
+# ═══════════════════════════════════════════════════
+#  Auto Parts Landing Orders
+# ═══════════════════════════════════════════════════
+
+class PartsOrder(Base):
+    """Order from the AI-generated auto parts landing page."""
+    __tablename__ = "parts_orders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_name = Column(String(300), nullable=False)
+    customer_phone = Column(String(100), nullable=False)
+    customer_email = Column(String(300), default="")
+    customer_city = Column(String(200), default="")
+    comment = Column(Text, default="")
+    items_json = Column(Text, default="[]")       # JSON array of ordered items
+    total_price = Column(Float, default=0.0)
+    query = Column(Text, default="")               # original search query
+    utm_term = Column(String(500), default="")
+    utm_source = Column(String(200), default="")
+    utm_campaign = Column(String(500), default="")
+    status = Column(String(50), default="new")     # new / processing / fulfilled / cancelled
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

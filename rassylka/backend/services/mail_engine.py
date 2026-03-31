@@ -360,7 +360,7 @@ async def send_email(to_email: str, subject: str, html_body: str) -> tuple[bool,
     smtp_pass = None
     smtp_host = SMTP_HOST
     smtp_port = SMTP_PORT
-    use_tls = True
+    use_tls = (SMTP_PORT == 465)  # SSL only on port 465; port 2525/25 = no TLS
     db_account_id = None
 
     try:

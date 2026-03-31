@@ -91,7 +91,7 @@ PANEL_PASS = os.getenv("PANEL_PASS", "BidRoute2026!")
 SESSION_SECRET = hashlib.sha256(f"{PANEL_USER}:{PANEL_PASS}:bidroute".encode()).hexdigest()[:32]
 
 # Public paths that don't require auth (tracking pixels, click redirects, unsubscribe)
-PUBLIC_PREFIXES = ("/api/t/", "/api/track/", "/api/unsubscribe", "/email-assets/", "/campaign-assets/")
+PUBLIC_PREFIXES = ("/api/t/", "/api/track/", "/api/unsubscribe", "/email-assets/", "/campaign-assets/", "/parts", "/api/parts/", "/parts-static/")
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="ru">
@@ -341,8 +341,12 @@ from backend.routers import monitor
 app.include_router(monitor.router)
 from backend.routers import promotion
 app.include_router(promotion.router)
+from backend.routers import promotion_catalog
+app.include_router(promotion_catalog.router)
 from backend.routers import telegram
 app.include_router(telegram.router)
+from backend.routers import landing as landing_router
+app.include_router(landing_router.router)
 
 # Serve email assets (images from atribut/ folder)
 ATRIBUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "atribut")
@@ -353,6 +357,11 @@ if os.path.isdir(ATRIBUT_DIR):
 CAMPAIGN_TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "campaign_templates")
 os.makedirs(CAMPAIGN_TEMPLATES_DIR, exist_ok=True)
 app.mount("/campaign-assets", StaticFiles(directory=CAMPAIGN_TEMPLATES_DIR), name="campaign-assets")
+
+# Serve landing page static files (CSS)
+LANDING_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+if os.path.isdir(LANDING_TEMPLATES_DIR):
+    app.mount("/parts-static", StaticFiles(directory=LANDING_TEMPLATES_DIR), name="parts-static")
 
 # Serve frontend static files
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
